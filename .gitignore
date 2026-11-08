@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Acrobat Bookshelf Data & Cache (保護隱私與書籍版權)
+data/books/*
+!data/books/.gitkeep
+data/covers/*
+!data/covers/.gitkeep
+data/thumbnails/*
+!data/thumbnails/.gitkeep
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/tracked_novels.json
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Crawler Cache & Secrets
+backend/crawler/.novel_cache/
+backend/crawler/po18_cookies.json
+.novel_cache/
+*.cookies.json
+
+# Logs & Temporary
+*.log
+*.tmp
+temp/
+tmp/

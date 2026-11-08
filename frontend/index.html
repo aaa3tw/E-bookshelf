@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acrobat Bookshelf - 電子書櫃與專業閱讀編輯系統</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            acrobat: {
+              red: '#eb1000',
+              redHover: '#c70e00',
+              dark: '#1e1e1e',
+              darker: '#141414',
+              panel: '#252526',
+              border: '#333333',
+              hover: '#2a2d2e',
+              active: '#094771',
+              lightGray: '#f3f4f6',
+              toolbar: '#2d3033'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- PDF.js 本地優先 + CDN 備援 -->
+  <link rel="stylesheet" href="assets/pdf_viewer.min.css">
+  <script src="assets/pdf.min.js"></script>
+  <script>
+    if (typeof pdfjsLib === 'undefined') {
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"><\/script>');
+    }
+  </script>
+
+  <!-- JSZip & ePub.js 本地優先 + CDN 備援 -->
+  <script src="assets/jszip.min.js"></script>
+  <script>
+    if (typeof JSZip === 'undefined') {
+      document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');
+    }
+  </script>
+  <script src="assets/epub.min.js"></script>
+  <script>
+    if (typeof ePub === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"><\/script>');
+    }
+  </script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="css/acrobat-theme.css?v=20261108_2330">
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans antialiased overflow-hidden select-none">
+
+  <!-- 全域應用容器 -->
+  <div id="app" class="h-screen w-screen flex flex-col">
+
+    <!-- 全域頂部 Header (所有主分頁共用) -->
+    <header id="mainAppHeader" class="h-16 bg-slate-800/90 backdrop-blur border-b border-slate-700/80 px-6 flex items-center justify-between shrink-0 shadow-lg z-20">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-lg bg-red-600 flex items-center justify-center shadow-md shadow-red-900/50">
+          <i data-lucide="book-marked" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            Acrobat Bookshelf
+            <span class="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-medium">Pro</span>
+          </h1>
+          <p class="text-xs text-slate-400">EPUB & PDF 專業閱讀編輯器 · 小說抓取與自動追更</p>
+        </div>
+      </div>
+
+      <!-- 導航分頁切換 -->
+      <nav class="flex items-center space-x-1 bg-slate-900/80 p-1 rounded-xl border border-slate-700/80 text-xs shrink-0 shadow-inner">
+        <button id="navBookshelfBtn" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 text-white font-medium shadow transition">
+          <i data-lucide="library" class="w-3.5 h-3.5"></i>
+          <span>我的書櫃</span>
+        </button>
+        <button id="navCrawlerBtn" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700/60 font-medium transition">
+          <i data-lucide="cloud-download" class="w-3.5 h-3.5 text-sky-400"></i>
+          <span>小說抓取</span>
+        </button>
+        <button id="navUpdatesBtn" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700/60 font-medium transition">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-emerald-400"></i>
+          <span>檢查更新</span>
+        </button>
+      </nav>
+
+      <!-- 書櫃專屬搜尋與過濾列 -->
+      <div id="bookshelfSearchGroup" class="flex items-center space-x-3 flex-1 max-w-xl mx-8 transition-opacity duration-200">
+        <div class="relative w-full">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-slate-400"></i>
+          <input type="text" id="searchInput" placeholder="搜尋書名、作者或多重書籤標籤..." 
+                 class="w-full bg-slate-700/60 border border-slate-600/70 rounded-lg pl-9 pr-4 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 transition shadow-inner">
+        </div>
+        
+        <div class="flex bg-slate-700/80 p-1 rounded-lg border border-slate-600/60 text-xs shrink-0">
+          <button class="filter-type-btn active px-3 py-1.5 rounded-md font-medium transition" data-type="all">全部</button>
+          <button class="filter-type-btn px-3 py-1.5 rounded-md font-medium transition text-slate-300 hover:text-white" data-type="pdf">PDF</button>
+          <button class="filter-type-btn px-3 py-1.5 rounded-md font-medium transition text-slate-300 hover:text-white" data-type="epub">EPUB</button>
+        </div>
+      </div>
+
+      <!-- 功能按鈕群 -->
+      <div class="flex items-center space-x-3">
+        <button id="openGlobalBookmarksBtn" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium border border-slate-600 transition shadow-sm">
+          <i data-lucide="tags" class="w-4 h-4 text-amber-400"></i>
+          <span>多重書籤總覽</span>
+        </button>
+        
+        <label for="bookUploadInput" class="cursor-pointer flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-semibold transition shadow-md shadow-red-900/30">
+          <i data-lucide="upload" class="w-4 h-4"></i>
+          <span>匯入書籍</span>
+          <input type="file" id="bookUploadInput" accept=".pdf,.epub" class="hidden" multiple>
+        </label>
+      </div>
+    </header>
+
+    <!-- ==================== 1. 電子書櫃視圖 (Bookshelf View) ==================== -->
+    <div id="bookshelfView" class="flex-1 flex flex-col h-full bg-slate-900 text-gray-100 overflow-hidden">
+
+      <!-- 書櫃主內容區 -->
+      <main class="flex-1 overflow-y-auto p-6 md:p-8">
+        <!-- 拖曳提示條 -->
+        <div id="dropZoneNotice" class="hidden border-2 border-dashed border-red-500/50 bg-red-500/10 rounded-xl p-8 mb-6 text-center text-red-200 flex flex-col items-center justify-center animate-pulse">
+          <i data-lucide="file-up" class="w-12 h-12 mb-2 text-red-400"></i>
+          <p class="font-medium text-lg">鬆開滑鼠即可立即上傳 PDF 或 EPUB 書籍至書櫃</p>
+        </div>
+
+        <!-- 書櫃統計小卡 -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div class="bg-slate-800/70 border border-slate-700/60 rounded-xl p-4 flex items-center space-x-4 shadow-sm">
+            <div class="w-12 h-12 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center shrink-0">
+              <i data-lucide="library" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400 font-medium">總藏書量</p>
+              <h3 id="statTotalBooks" class="text-2xl font-bold text-white">0 本</h3>
+            </div>
+          </div>
+          
+          <div class="bg-slate-800/70 border border-slate-700/60 rounded-xl p-4 flex items-center space-x-4 shadow-sm">
+            <div class="w-12 h-12 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center shrink-0">
+              <i data-lucide="file-text" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400 font-medium">PDF 文件</p>
+              <h3 id="statPdfBooks" class="text-2xl font-bold text-white">0 本</h3>
+            </div>
+          </div>
+
+          <div class="bg-slate-800/70 border border-slate-700/60 rounded-xl p-4 flex items-center space-x-4 shadow-sm">
+            <div class="w-12 h-12 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+              <i data-lucide="book-open" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400 font-medium">EPUB 電子書</p>
+              <h3 id="statEpubBooks" class="text-2xl font-bold text-white">0 本</h3>
+            </div>
+          </div>
+
+          <div class="bg-slate-800/70 border border-slate-700/60 rounded-xl p-4 flex items-center space-x-4 shadow-sm">
+            <div class="w-12 h-12 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0">
+              <i data-lucide="bookmark" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <p class="text-xs text-slate-400 font-medium">已建多重書籤</p>
+              <h3 id="statTotalBookmarks" class="text-2xl font-bold text-white">0 則</h3>
+            </div>
+          </div>
+        </div>
+
+        <!-- 書本網格列表 -->
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-slate-200 flex items-center gap-2">
+            <span>我的書櫃</span>
+            <span id="booksCountBadge" class="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full border border-slate-700">共 0 本</span>
+          </h2>
+          <div class="text-xs text-slate-400 flex items-center gap-1">
+            <i data-lucide="info" class="w-3.5 h-3.5"></i>
+            <span>點選書籍開啟閱讀 · 點右上角垃圾桶可直接刪除書籍</span>
+          </div>
+        </div>
+
+        <div id="booksGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+          <!-- 書籍卡片將由 JS 動態渲染 -->
+        </div>
+
+        <div id="emptyShelfPrompt" class="hidden text-center py-20">
+          <div class="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-600">
+            <i data-lucide="book-copy" class="w-10 h-10"></i>
+          </div>
+          <h3 class="text-lg font-medium text-slate-300 mb-1">書櫃空空如也</h3>
+          <p class="text-sm text-slate-500 mb-4">點擊右上角「匯入書籍」或將 PDF / EPUB 檔案直接拖曳進來</p>
+        </div>
+      </main>
+    </div>
+
+    <!-- ==================== 1.5 小說抓取視圖 (Crawler View) ==================== -->
+    <div id="crawlerView" class="hidden flex-1 flex flex-col h-full bg-slate-900 text-gray-100 overflow-hidden">
+      <!-- 頂部次導航與搜尋列 -->
+      <div class="h-20 bg-slate-800/90 backdrop-blur border-b border-slate-700/80 px-6 flex items-center justify-between shrink-0 gap-6">
+        <!-- 支援站點切換 -->
+        <div class="flex items-center gap-2 overflow-x-auto py-1" id="crawlerSiteTabs">
+          <!-- 動態注入站點按鈕 -->
+        </div>
+
+        <!-- 搜尋與直接網址輸入 -->
+        <div class="flex items-center gap-2 flex-1 max-w-xl">
+          <div class="relative w-full">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-slate-400"></i>
+            <input type="text" id="crawlerSearchInput" placeholder="搜尋書名，或直接輸入小說目錄網址/書號..." 
+                   class="w-full bg-slate-700/60 border border-slate-600/70 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 transition shadow-inner">
+          </div>
+          <button id="crawlerSearchBtn" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-semibold flex items-center gap-1.5 transition shrink-0 shadow-md shadow-red-900/30">
+            <i data-lucide="search" class="w-4 h-4"></i>
+            <span>搜尋</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 內容展示區 -->
+      <main class="flex-1 overflow-y-auto p-6 md:p-8">
+        <!-- 頂部提示條 -->
+        <div class="flex items-center justify-between mb-5">
+          <div>
+            <h2 class="text-xl font-bold text-white flex items-center gap-2">
+              <span>🔥 熱門排行榜與小說抓取</span>
+              <span class="text-xs bg-slate-800 text-slate-400 border border-slate-700 px-2 py-0.5 rounded-full font-normal">官方熱門總榜 · 多站點智慧適配 · 一鍵入庫</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-1">支援依小說類別精準篩選熱門作品；亦可搜尋書名 / 貼入目錄網址一鍵下載並自動匯入書櫃。</p>
+          </div>
+        </div>
+
+        <!-- 類別篩選標籤列 (Category Filter Tabs) -->
+        <div class="mb-6 flex items-center justify-between gap-4 flex-wrap bg-slate-800/70 p-3 rounded-2xl border border-slate-700/70 shadow-inner">
+          <div class="flex items-center gap-2 text-xs text-slate-300 font-semibold pl-1 shrink-0">
+            <i data-lucide="filter" class="w-4 h-4 text-red-400"></i>
+            <span>小說類別：</span>
+          </div>
+          <div class="flex items-center gap-1.5 overflow-x-auto py-1 flex-1" id="crawlerCategoryTabs">
+            <!-- 動態注入各分類篩選按鈕 -->
+          </div>
+          <div class="text-xs text-slate-400 shrink-0 pr-2 flex items-center gap-1">
+            <span>已展示</span>
+            <span id="crawlerBooksCount" class="text-red-400 font-bold text-sm bg-slate-900/60 px-2 py-0.5 rounded-lg border border-slate-700">0</span>
+            <span>本作品</span>
+          </div>
+        </div>
+
+        <!-- 載入中骨架屏提示 -->
+        <div id="crawlerLoadingPrompt" class="hidden py-16 flex flex-col items-center justify-center text-slate-400">
+          <i data-lucide="loader" class="w-8 h-8 animate-spin text-red-500 mb-3"></i>
+          <p class="text-sm font-medium">正在為您探索站點小說資料，請稍候...</p>
+        </div>
+
+        <!-- 小說卡片網格 -->
+        <div id="crawlerBooksGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+          <!-- 動態注入小說卡片 -->
+        </div>
+      </main>
+    </div>
+
+    <!-- ==================== 1.6 檢查更新視圖 (Updates View) ==================== -->
+    <div id="updatesView" class="hidden flex-1 flex flex-col h-full bg-slate-900 text-gray-100 overflow-hidden">
+      <!-- 頂部控制面板 -->
+      <div class="h-20 bg-slate-800/90 backdrop-blur border-b border-slate-700/80 px-6 flex items-center justify-between shrink-0 gap-6">
+        <div class="flex items-center gap-6">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-400">追更中：</span>
+            <span id="statTrackedTotal" class="text-base font-bold text-white bg-slate-700/70 px-2.5 py-0.5 rounded-lg border border-slate-600/60">0 本</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-400">有新章節：</span>
+            <span id="statTrackedPending" class="text-base font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-lg border border-amber-500/30">0 本</span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <div class="relative w-64">
+            <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
+            <input type="text" id="updateSearchInput" placeholder="篩選追更書名..." 
+                   class="w-full bg-slate-700/60 border border-slate-600/70 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-red-500">
+          </div>
+
+          <button id="syncBookshelfBtn" class="px-3.5 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition border border-slate-600 shadow-sm" title="將下載的小說與書櫃進行雙向同步">
+            <i data-lucide="folder-sync" class="w-3.5 h-3.5 text-sky-400"></i>
+            <span>同步書庫</span>
+          </button>
+
+          <button id="checkAllUpdatesBtn" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-md shadow-emerald-950/40">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>一鍵檢查全部更新</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 追更列表清單 -->
+      <main class="flex-1 overflow-y-auto p-6 md:p-8">
+        <div class="mb-4">
+          <h2 class="text-lg font-bold text-white">小說追更管理架</h2>
+          <p class="text-xs text-slate-400 mt-0.5">點擊「檢查更新」自動比對網路最新章節；點擊「立即更新」將自動增量抓取最新內容並重新生成最新 EPUB 存入書櫃。</p>
+        </div>
+
+        <div id="trackedLoadingPrompt" class="hidden py-16 flex flex-col items-center justify-center text-slate-400">
+          <i data-lucide="loader" class="w-8 h-8 animate-spin text-emerald-500 mb-3"></i>
+          <p class="text-sm font-medium">正在讀取追更書架資料...</p>
+        </div>
+
+        <div id="trackedNovelsContainer" class="space-y-3.5">
+          <!-- 動態注入追更卡片 -->
+        </div>
+      </main>
+    </div>
+
+
+    <!-- ==================== 2. Acrobat 經典閱讀與編輯器視圖 (Reader & Editor View) ==================== -->
+    <div id="readerView" class="hidden flex-1 flex flex-col h-full bg-[#323639] text-gray-100 overflow-hidden">
+      
+      <!-- Acrobat 經典頂部工具列 (Acrobat Top Toolbar) -->
+      <div id="acrobatToolbar" class="h-12 bg-[#2d3033] border-b border-[#202124] flex items-center justify-between px-3 shrink-0 shadow z-20 text-xs">
+        
+        <!-- 左側：返回書櫃與文件資訊 -->
+        <div class="flex items-center space-x-2">
+          <button id="backToBookshelfBtn" title="返回書櫃" class="acrobat-tool-btn px-2 py-1 flex items-center gap-1 text-slate-300 hover:text-white rounded hover:bg-[#3e4246]">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i>
+            <span class="font-medium">書櫃</span>
+          </button>
+          
+          <div class="h-5 w-px bg-slate-600 mx-1"></div>
+
+          <!-- 切換側邊欄抽屜開關 -->
+          <button id="toggleSidebarBtn" title="切換側邊欄導航面板" class="acrobat-tool-btn p-1.5 text-slate-300 hover:text-white rounded hover:bg-[#3e4246] active">
+            <i data-lucide="panel-left" class="w-4 h-4"></i>
+          </button>
+
+          <!-- 當前書本標題與徽章 -->
+          <div class="flex items-center gap-1.5 max-w-xs md:max-w-md truncate">
+            <span id="readerDocBadge" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white uppercase">PDF</span>
+            <span id="readerDocTitle" class="font-semibold text-slate-100 truncate text-sm">載入中...</span>
+          </div>
+        </div>
+
+        <!-- 中間：經典 Acrobat 工具箱 (選取、高亮、畫線、便籤、繪圖、文字方塊) -->
+        <div class="flex items-center space-x-1 bg-[#242729] px-2 py-1 rounded-md border border-[#3e4246]">
+          <!-- 手形平移 -->
+          <button id="toolHand" title="手形工具 (捲動閱讀)" class="acrobat-tool-btn p-1.5 rounded hover:bg-[#3e4246] active text-slate-200">
+            <i data-lucide="hand" class="w-4 h-4"></i>
+          </button>
+          <!-- 選取工具 -->
+          <button id="toolSelect" title="選取文字" class="acrobat-tool-btn p-1.5 rounded hover:bg-[#3e4246] text-slate-400">
+            <i data-lucide="mouse-pointer-2" class="w-4 h-4"></i>
+          </button>
+
+          <div class="h-4 w-px bg-[#3e4246] mx-0.5"></div>
+
+          <!-- 螢光筆高亮工具與選色器 -->
+          <div class="relative group">
+            <button id="toolHighlight" title="螢光筆高亮" class="acrobat-tool-btn p-1.5 rounded hover:bg-[#3e4246] text-slate-400 flex items-center gap-0.5">
+              <i data-lucide="highlighter" class="w-4 h-4 text-yellow-400"></i>
+              <span class="w-2 h-2 rounded-full bg-yellow-400 inline-block" id="currentColorDot"></span>
+            </button>
+            <!-- 顏色下拉調色盤 -->
+            <div class="hidden group-hover:flex absolute top-full left-0 mt-1 bg-[#242729] border border-slate-600 rounded-lg p-2 shadow-xl z-50 gap-1.5">
+              <button class="color-picker-dot w-5 h-5 rounded-full bg-yellow-400 hover:scale-110 transition" data-color="#facc15" title="經典黃"></button>
+              <button class="color-picker-dot w-5 h-5 rounded-full bg-emerald-400 hover:scale-110 transition" data-color="#34d399" title="清新綠"></button>
+              <button class="color-picker-dot w-5 h-5 rounded-full bg-sky-400 hover:scale-110 transition" data-color="#38bdf8" title="天際藍"></button>
+              <button class="color-picker-dot w-5 h-5 rounded-full bg-pink-400 hover:scale-110 transition" data-color="#f472b6" title="粉艷紅"></button>
+              <button class="color-picker-dot w-5 h-5 rounded-full bg-purple-400 hover:scale-110 transition" data-color="#c084fc" title="紫羅蘭"></button>
+            </div>
+          </div>
+
+          <!-- 手繪塗鴉筆 -->
+          <button id="toolPen" title="手繪畫筆" class="acrobat-tool-btn p-1.5 rounded hover:bg-[#3e4246] text-slate-400">
+            <i data-lucide="pencil" class="w-4 h-4"></i>
+          </button>
+
+          <!-- 便籤註解 -->
+          <button id="toolNote" title="新增便籤筆記" class="acrobat-tool-btn p-1.5 rounded hover:bg-[#3e4246] text-slate-400">
+            <i data-lucide="message-square-plus" class="w-4 h-4"></i>
+          </button>
+
+          <!-- 橡皮擦 / 清除標註 -->
+          <button id="toolEraser" title="橡皮擦" class="acrobat-tool-btn p-1.5 rounded hover:bg-[#3e4246] text-slate-400">
+            <i data-lucide="eraser" class="w-4 h-4"></i>
+          </button>
+
+          <div class="h-4 w-px bg-[#3e4246] mx-0.5"></div>
+
+          <!-- 快速加入多重書籤按鈕 -->
+          <button id="quickAddBookmarkBtn" title="加入多重書籤 (Ctrl+B)" class="flex items-center gap-1 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-medium border border-amber-500/40 transition">
+            <i data-lucide="bookmark-plus" class="w-4 h-4"></i>
+            <span>書籤</span>
+          </button>
+        </div>
+
+        <!-- 右側：導航跳頁、縮放與旋轉、導出與刪除書籍 -->
+        <div class="flex items-center space-x-2">
+          <!-- 翻頁導航 -->
+          <div class="flex items-center space-x-1 bg-[#242729] px-1.5 py-0.5 rounded border border-[#3e4246]">
+            <button id="prevPageBtn" title="上一頁" class="p-1 text-slate-400 hover:text-white hover:bg-[#3e4246] rounded">
+              <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+            </button>
+            <input type="text" id="currentPageInput" value="1" class="w-10 bg-[#1c1d1f] text-center text-xs py-0.5 rounded border border-slate-600 focus:outline-none focus:ring-1 focus:ring-red-500 text-white">
+            <span class="text-slate-400 text-xs">/ <span id="totalPagesSpan">1</span></span>
+            <button id="nextPageBtn" title="下一頁" class="p-1 text-slate-400 hover:text-white hover:bg-[#3e4246] rounded">
+              <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+          <!-- 縮放控制器 -->
+          <div class="flex items-center space-x-1 bg-[#242729] px-1.5 py-0.5 rounded border border-[#3e4246]">
+            <button id="zoomOutBtn" title="縮小" class="p-1 text-slate-400 hover:text-white hover:bg-[#3e4246] rounded">
+              <i data-lucide="minus" class="w-3.5 h-3.5"></i>
+            </button>
+            <span id="zoomLevelText" class="text-xs text-slate-300 w-12 text-center font-mono">100%</span>
+            <button id="zoomInBtn" title="放大" class="p-1 text-slate-400 hover:text-white hover:bg-[#3e4246] rounded">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+          <!-- 旋轉與版面 -->
+          <button id="rotateBtn" title="順時針旋轉 90 度" class="p-1.5 text-slate-400 hover:text-white hover:bg-[#3e4246] rounded">
+            <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+          </button>
+
+          <!-- 匯出與儲存選單 -->
+          <div class="relative group">
+            <button class="flex items-center gap-1 px-2.5 py-1 rounded bg-red-600 hover:bg-red-500 text-white font-medium shadow-sm transition">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i>
+              <span>匯出</span>
+            </button>
+            <div class="hidden group-hover:flex flex-col absolute right-0 top-full mt-1 w-48 bg-[#242729] border border-slate-700 rounded-lg shadow-2xl py-1 z-50">
+              <button id="exportAnnotatedPdfBtn" class="flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-200 hover:bg-[#3e4246] transition">
+                <i data-lucide="file-check" class="w-4 h-4 text-red-400"></i>
+                <span>匯出帶標註 PDF</span>
+              </button>
+              <button id="exportMarkdownNotesBtn" class="flex items-center gap-2 px-3 py-2 text-left text-xs text-slate-200 hover:bg-[#3e4246] transition">
+                <i data-lucide="file-text" class="w-4 h-4 text-emerald-400"></i>
+                <span>匯出書籤與讀書筆記 (MD)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 閱讀器內部的刪除此書按鈕 -->
+          <button id="readerDeleteBookBtn" title="刪除此書" class="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-950/40 rounded transition">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+
+        </div>
+      </div>
+
+      <!-- Acrobat 工作區雙欄主體 -->
+      <div class="flex-1 flex overflow-hidden relative">
+        
+        <!-- 左側多功能導航抽屜 (Acrobat Sidebar Tabs) -->
+        <aside id="acrobatSidebar" class="w-80 bg-[#25282a] border-r border-[#1c1d1f] flex flex-col shrink-0 transition-all duration-200 z-10">
+          
+          <!-- 側邊欄頂部分頁標籤列 (縮圖、目錄大綱、多重書籤、註解修訂、EPUB編輯) -->
+          <div class="flex items-center border-b border-[#33373a] bg-[#1e2022] text-xs font-medium">
+            <button class="sidebar-tab-btn active flex-1 py-2.5 text-center text-slate-300 hover:text-white border-b-2 border-red-500 transition flex items-center justify-center gap-1" data-panel="panelBookmarks" title="多重書籤">
+              <i data-lucide="bookmark" class="w-3.5 h-3.5 text-amber-400"></i>
+              <span>多重書籤</span>
+            </button>
+            <button class="sidebar-tab-btn flex-1 py-2.5 text-center text-slate-400 hover:text-white border-b-2 border-transparent transition flex items-center justify-center gap-1" data-panel="panelOutline" title="目錄大綱">
+              <i data-lucide="list-tree" class="w-3.5 h-3.5"></i>
+              <span>目錄</span>
+            </button>
+            <button id="sidebarThumbTabBtn" class="sidebar-tab-btn flex-1 py-2.5 text-center text-slate-400 hover:text-white border-b-2 border-transparent transition flex items-center justify-center gap-1" data-panel="panelThumbnails" title="頁面縮圖">
+              <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+              <span>縮圖</span>
+            </button>
+            <button class="sidebar-tab-btn flex-1 py-2.5 text-center text-slate-400 hover:text-white border-b-2 border-transparent transition flex items-center justify-center gap-1" data-panel="panelAnnotations" title="註解修訂">
+              <i data-lucide="message-square" class="w-3.5 h-3.5"></i>
+              <span>註解</span>
+            </button>
+            <button id="epubEditTabBtn" class="sidebar-tab-btn hidden flex-1 py-2.5 text-center text-slate-400 hover:text-white border-b-2 border-transparent transition flex items-center justify-center gap-1" data-panel="panelEpubEditor" title="編輯EPUB章節">
+              <i data-lucide="edit-3" class="w-3.5 h-3.5 text-emerald-400"></i>
+              <span>編輯</span>
+            </button>
+          </div>
+
+          <!-- 面板 1：多重書籤管理器 (核心亮點) -->
+          <div id="panelBookmarks" class="sidebar-panel flex-1 flex flex-col overflow-hidden p-3">
+            <!-- 篩選列 -->
+            <div class="space-y-2 mb-3">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-300">多維度書籤篩選</span>
+                <button id="btnSidebarAddBookmark" class="text-[11px] bg-red-600/80 hover:bg-red-600 text-white px-2 py-0.5 rounded flex items-center gap-1">
+                  <i data-lucide="plus" class="w-3 h-3"></i>新增書籤
+                </button>
+              </div>
+
+              <!-- 顏色標籤快選 -->
+              <div class="flex items-center gap-1.5 bg-[#1c1d1f] p-1.5 rounded border border-[#33373a]">
+                <button class="filter-bm-color active px-2 py-0.5 rounded text-[10px] font-medium bg-slate-700 text-white" data-color="all">全部</button>
+                <button class="filter-bm-color w-4 h-4 rounded-full bg-red-500 hover:ring-2 ring-white/50" data-color="red" title="重要核心"></button>
+                <button class="filter-bm-color w-4 h-4 rounded-full bg-yellow-400 hover:ring-2 ring-white/50" data-color="yellow" title="待複習考點"></button>
+                <button class="filter-bm-color w-4 h-4 rounded-full bg-green-500 hover:ring-2 ring-white/50" data-color="green" title="精選引用"></button>
+                <button class="filter-bm-color w-4 h-4 rounded-full bg-blue-500 hover:ring-2 ring-white/50" data-color="blue" title="備忘心得"></button>
+                <button class="filter-bm-color w-4 h-4 rounded-full bg-purple-500 hover:ring-2 ring-white/50" data-color="purple" title="深度思考"></button>
+              </div>
+
+              <!-- 標籤搜尋輸入框 -->
+              <div class="relative">
+                <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2 top-2 text-slate-500"></i>
+                <input type="text" id="bmSearchInput" placeholder="搜尋書籤備註、引文或標籤..." 
+                       class="w-full bg-[#1c1d1f] border border-[#33373a] rounded pl-7 pr-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500">
+              </div>
+            </div>
+
+            <!-- 書籤列表容器 -->
+            <div id="bookmarksListContainer" class="flex-1 overflow-y-auto space-y-2 pr-1">
+              <!-- 動態生成多重書籤卡片 -->
+            </div>
+          </div>
+
+          <!-- 面板 2：目錄大綱樹 (Outline / TOC) -->
+          <div id="panelOutline" class="sidebar-panel hidden flex-1 flex flex-col overflow-y-auto p-3 text-xs">
+            <div id="outlineTreeContainer" class="space-y-1">
+              <!-- 動態生成目錄樹 -->
+            </div>
+          </div>
+
+          <!-- 面板 3：頁面縮圖 (Thumbnails) -->
+          <div id="panelThumbnails" class="sidebar-panel hidden flex-1 flex flex-col overflow-y-auto p-3">
+            <div id="thumbnailsContainer" class="grid grid-cols-2 gap-3">
+              <!-- 動態生成頁面縮圖 -->
+            </div>
+          </div>
+
+          <!-- 面板 4：註解與修訂列表 (Annotations) -->
+          <div id="panelAnnotations" class="sidebar-panel hidden flex-1 flex flex-col overflow-hidden p-3 text-xs">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-bold text-slate-300">本文件所有註記</span>
+              <button id="clearAllAnnotationsBtn" class="text-[11px] text-red-400 hover:text-red-300">清空標記</button>
+            </div>
+            <div id="annotationsListContainer" class="flex-1 overflow-y-auto space-y-2 pr-1">
+              <!-- 動態生成註記清單 -->
+            </div>
+          </div>
+
+          <!-- 面板 5：EPUB 章節原始文字編輯器 (EPUB Only) -->
+          <div id="panelEpubEditor" class="sidebar-panel hidden flex-1 flex flex-col overflow-hidden p-3 text-xs">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-bold text-emerald-400">EPUB 章節即時編輯</span>
+              <button id="saveEpubChapterBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded font-medium shadow flex items-center gap-1">
+                <i data-lucide="save" class="w-3 h-3"></i>儲存變更
+              </button>
+            </div>
+            
+            <div class="flex items-center justify-between mb-1.5">
+              <select id="epubChapterSelect" class="flex-1 bg-[#1c1d1f] border border-[#33373a] text-slate-200 text-xs rounded p-1.5 focus:outline-none">
+                <!-- 章節列表 -->
+              </select>
+              <button id="toggleEditModeBtn" class="ml-1.5 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-[10px] shrink-0">切換純文字</button>
+            </div>
+            
+            <textarea id="epubChapterContentArea" placeholder="載入章節中..." class="flex-1 w-full bg-[#1c1d1f] border border-[#33373a] text-slate-200 p-2 font-mono text-xs rounded resize-none focus:outline-none focus:border-emerald-500 leading-relaxed"></textarea>
+          </div>
+
+        </aside>
+
+        <!-- 中央主要閱讀與編輯畫布 (Reading & Editing Canvas) -->
+        <main id="readerViewport" class="flex-1 h-full overflow-hidden relative flex justify-center p-2 md:p-4 bg-[#494c4e]">
+          
+          <!-- PDF 容器 (PDF.js Canvas + Overlay Annotation Layer) -->
+          <div id="pdfContainer" class="relative shadow-2xl bg-white hidden overflow-auto">
+            <!-- PDF Canvas -->
+            <canvas id="pdfCanvas" class="block"></canvas>
+            <!-- 向量標註/手繪塗鴉畫布 (疊加在 PDF 之上) -->
+            <canvas id="annotationCanvas" class="absolute inset-0 pointer-events-auto"></canvas>
+            <!-- PDF Text Layer (支援文字框選與取詞) -->
+            <div id="pdfTextLayer" class="textLayer absolute inset-0"></div>
+          </div>
+
+          <!-- EPUB 閱讀容器 (ePub.js 專用，給予明確視窗高度，徹底解決高度為0問題) -->
+          <div id="epubContainer" class="w-full max-w-4xl h-full bg-white shadow-2xl rounded-lg overflow-hidden flex flex-col hidden relative border border-slate-300">
+            <!-- EPUB 載入中骨架屏 -->
+            <div id="epubLoadingOverlay" class="absolute inset-0 bg-white/90 z-20 flex flex-col items-center justify-center gap-2">
+              <div class="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+              <span class="text-xs text-slate-600 font-medium">電子書內容解析載入中...</span>
+            </div>
+
+            <!-- EPUB 閱讀主渲染區域 -->
+            <div id="epubViewerArea" class="flex-1 w-full h-full relative overflow-hidden bg-white"></div>
+            
+            <!-- EPUB 專用底部翻頁與樣式控制列 -->
+            <div class="h-11 bg-slate-100 border-t border-slate-200 px-4 flex items-center justify-between text-xs text-slate-700 shrink-0 z-10 shadow-inner">
+              <button id="epubPrevBtn" class="px-2.5 py-1 rounded bg-white hover:bg-slate-200 border border-slate-300 flex items-center gap-1 shadow-sm font-medium">
+                <i data-lucide="chevron-left" class="w-4 h-4"></i> 上一頁
+              </button>
+              
+              <div class="flex items-center gap-3">
+                <!-- 章節切換選單 -->
+                <div class="flex items-center gap-1.5">
+                  <span class="text-slate-500">章節:</span>
+                  <select id="epubQuickNavSelect" class="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-800 focus:outline-none max-w-[200px] truncate">
+                    <option value="">載入章節中...</option>
+                  </select>
+                </div>
+
+                <!-- 字體縮放 -->
+                <div class="flex items-center gap-1 bg-white border border-slate-300 rounded px-1.5 py-0.5">
+                  <span class="text-slate-400">字級:</span>
+                  <button id="epubFontMinusBtn" class="px-1.5 py-0.5 rounded hover:bg-slate-200 font-bold" title="縮小字體">A-</button>
+                  <button id="epubFontPlusBtn" class="px-1.5 py-0.5 rounded hover:bg-slate-200 font-bold" title="放大字體">A+</button>
+                </div>
+
+                <!-- 主題色彩 -->
+                <div class="flex items-center gap-1.5 bg-white border border-slate-300 rounded px-2 py-1">
+                  <button class="epub-theme-btn w-4 h-4 rounded-full bg-white border border-slate-400 hover:scale-110 transition" data-theme="white" title="亮白模式"></button>
+                  <button class="epub-theme-btn w-4 h-4 rounded-full bg-[#fbf0d9] border border-amber-400 hover:scale-110 transition" data-theme="sepia" title="復古羊皮紙護眼"></button>
+                  <button class="epub-theme-btn w-4 h-4 rounded-full bg-[#1e2022] border border-slate-600 hover:scale-110 transition" data-theme="dark" title="夜間暗黑模式"></button>
+                </div>
+              </div>
+
+              <button id="epubNextBtn" class="px-2.5 py-1 rounded bg-white hover:bg-slate-200 border border-slate-300 flex items-center gap-1 shadow-sm font-medium">
+                下一頁 <i data-lucide="chevron-right" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- 便籤浮動顯示/輸入彈窗 -->
+          <div id="floatingNoteBox" class="hidden absolute z-30 bg-amber-100 border border-amber-300 shadow-xl rounded-lg p-3 w-64 text-xs text-slate-800">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-bold flex items-center gap-1 text-amber-900">
+                <i data-lucide="sticky-note" class="w-3.5 h-3.5 text-amber-600"></i> 便籤筆記
+              </span>
+              <button id="closeFloatingNoteBtn" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+            </div>
+            <textarea id="floatingNoteText" placeholder="輸入此處的備忘註解..." class="w-full h-20 bg-amber-50/70 border border-amber-200 rounded p-1.5 text-xs text-slate-800 focus:outline-none resize-none mb-2"></textarea>
+            <div class="flex justify-end gap-1">
+              <button id="saveFloatingNoteBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded text-xs font-medium">儲存筆記</button>
+            </div>
+          </div>
+
+          <!-- Acrobat 經典浮動選取快捷列 (選取文字後彈出，防遮擋自動關閉) -->
+          <div id="selectionQuickBar" class="hidden">
+            <button id="quickHighlightBtn" class="px-2 py-1 rounded bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-bold flex items-center gap-1 text-[11px] transition shadow" title="螢光筆高亮">
+              <i data-lucide="highlighter" class="w-3.5 h-3.5"></i> 高亮
+            </button>
+            <button id="quickAddBmFromSelBtn" class="px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white font-medium flex items-center gap-1 text-[11px] transition shadow" title="以此段文字建立多重書籤">
+              <i data-lucide="bookmark-plus" class="w-3.5 h-3.5"></i> 書籤
+            </button>
+            <button id="quickCopyBtn" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 flex items-center gap-1 text-[11px] transition shadow" title="複製文字">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> 複製
+            </button>
+            <button id="quickCloseBtn" class="px-1.5 py-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition text-xs border-l border-slate-700/60 ml-0.5" title="關閉小視窗 (Esc)">
+              <i data-lucide="x" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+
+        </main>
+      </div>
+
+      <!-- Acrobat 底部狀態列 -->
+      <footer class="h-6 bg-[#202124] border-t border-[#141414] px-4 flex items-center justify-between text-[11px] text-slate-400 shrink-0">
+        <div class="flex items-center gap-4">
+          <span id="readingProgressText">進度: 0%</span>
+          <span id="readingLocationText">位置: 第 1 頁</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span>鍵盤翻頁：<kbd class="bg-slate-700 text-slate-200 px-1 rounded">←</kbd> <kbd class="bg-slate-700 text-slate-200 px-1 rounded">↑</kbd> <kbd class="bg-slate-700 text-slate-200 px-1 rounded">PageUp</kbd> (上一頁) · <kbd class="bg-slate-700 text-slate-200 px-1 rounded">→</kbd> <kbd class="bg-slate-700 text-slate-200 px-1 rounded">↓</kbd> <kbd class="bg-slate-700 text-slate-200 px-1 rounded">空白鍵</kbd> <kbd class="bg-slate-700 text-slate-200 px-1 rounded">PageDown</kbd> (下一頁) · <kbd class="bg-slate-700 text-slate-200 px-1 rounded">Ctrl+B</kbd> (書籤)</span>
+        </div>
+      </footer>
+
+    </div>
+
+    <!-- ==================== 3. 多重書籤新增/編輯專業彈窗 (Multi-Bookmark Modal) ==================== -->
+    <div id="bookmarkModal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-[#242729] border border-slate-700 rounded-xl max-w-md w-full shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in fade-in zoom-in-95 duration-150">
+        
+        <!-- 彈窗頂部標題 -->
+        <div class="px-5 py-4 border-b border-slate-700/80 flex items-center justify-between bg-[#1e2022]">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
+              <i data-lucide="bookmark-check" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h3 id="bookmarkModalTitle" class="font-bold text-sm text-white">新增多重書籤</h3>
+              <p class="text-[11px] text-slate-400" id="bmModalLocationInfo">目前定位：第 1 頁</p>
+            </div>
+          </div>
+          <button id="closeBookmarkModalBtn" class="text-slate-400 hover:text-white transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- 彈窗主表單 -->
+        <div class="p-5 space-y-4 text-xs">
+          <!-- 書籤標題 -->
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">書籤標題 <span class="text-red-400">*</span></label>
+            <input type="text" id="bmInputTitle" placeholder="例如：核心公式推導、第三節重要論點" 
+                   class="w-full bg-[#1c1d1f] border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 text-xs">
+          </div>
+
+          <!-- 色彩與分組分類 -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">視覺色標 (Color Badge)</label>
+              <div class="flex items-center gap-2 bg-[#1c1d1f] p-2 rounded-lg border border-slate-600">
+                <label class="cursor-pointer flex items-center gap-1">
+                  <input type="radio" name="bmColor" value="red" checked class="hidden peer">
+                  <span class="w-5 h-5 rounded-full bg-red-500 inline-block peer-checked:ring-2 ring-white"></span>
+                </label>
+                <label class="cursor-pointer flex items-center gap-1">
+                  <input type="radio" name="bmColor" value="yellow" class="hidden peer">
+                  <span class="w-5 h-5 rounded-full bg-yellow-400 inline-block peer-checked:ring-2 ring-white"></span>
+                </label>
+                <label class="cursor-pointer flex items-center gap-1">
+                  <input type="radio" name="bmColor" value="green" class="hidden peer">
+                  <span class="w-5 h-5 rounded-full bg-green-500 inline-block peer-checked:ring-2 ring-white"></span>
+                </label>
+                <label class="cursor-pointer flex items-center gap-1">
+                  <input type="radio" name="bmColor" value="blue" class="hidden peer">
+                  <span class="w-5 h-5 rounded-full bg-blue-500 inline-block peer-checked:ring-2 ring-white"></span>
+                </label>
+                <label class="cursor-pointer flex items-center gap-1">
+                  <input type="radio" name="bmColor" value="purple" class="hidden peer">
+                  <span class="w-5 h-5 rounded-full bg-purple-500 inline-block peer-checked:ring-2 ring-white"></span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">分類類別 (Category)</label>
+              <select id="bmSelectCategory" class="w-full bg-[#1c1d1f] border border-slate-600 rounded-lg px-2.5 py-2 text-white focus:outline-none focus:border-red-500 text-xs">
+                <option value="重要核心">🔴 重要核心</option>
+                <option value="待複習考點">🟡 待複習考點</option>
+                <option value="精選引用">🟢 精選引用</option>
+                <option value="備忘心得">🔵 備忘心得</option>
+                <option value="深度思考">🟣 深度思考</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 自訂多標籤 Tags (輸入後按 Enter 加入) -->
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">多重標籤 Tags (輸入後按 Enter 新增)</label>
+            <div id="bmTagsBadgeContainer" class="flex flex-wrap gap-1 mb-1.5">
+              <!-- 標籤小徽章 -->
+            </div>
+            <input type="text" id="bmInputTag" placeholder="輸入標籤如：#架構 #重點 #公式" 
+                   class="w-full bg-[#1c1d1f] border border-slate-600 rounded-lg px-3 py-1.5 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 text-xs">
+          </div>
+
+          <!-- 摘錄引文 (自動從選取文字填入) -->
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">摘錄引文 (Quote)</label>
+            <textarea id="bmTextQuote" rows="2" placeholder="目前框選或書中精選引述內容..." 
+                      class="w-full bg-[#1c1d1f] border border-slate-600 rounded-lg p-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-red-500 text-xs resize-none"></textarea>
+          </div>
+
+          <!-- 筆記備忘 / 閱讀心得 -->
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">備忘筆記 / 閱讀心得 (Notes)</label>
+            <textarea id="bmTextNote" rows="3" placeholder="寫下您的深入見解、疑問或行動待辦..." 
+                      class="w-full bg-[#1c1d1f] border border-slate-600 rounded-lg p-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-red-500 text-xs resize-none"></textarea>
+          </div>
+        </div>
+
+        <!-- 彈窗底部操作按鈕 -->
+        <div class="px-5 py-3 border-t border-slate-700 bg-[#1e2022] flex items-center justify-end gap-2 text-xs">
+          <button id="cancelBookmarkModalBtn" class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition">取消</button>
+          <button id="saveBookmarkModalBtn" class="px-5 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold shadow-md shadow-red-900/30 transition flex items-center gap-1.5">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>儲存書籤</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ==================== 4. 全域跨書多重書籤總覽側滑抽屜 ==================== -->
+    <div id="globalBookmarksDrawer" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end">
+      <div class="w-full max-w-lg bg-[#242729] h-full shadow-2xl flex flex-col text-slate-100 border-l border-slate-700">
+        <div class="p-4 border-b border-slate-700 flex items-center justify-between bg-[#1e2022]">
+          <div class="flex items-center gap-2">
+            <i data-lucide="tags" class="w-5 h-5 text-amber-400"></i>
+            <h3 class="font-bold text-sm text-white">全書庫多重書籤索引總覽</h3>
+          </div>
+          <button id="closeGlobalBookmarksBtn" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+
+        <div class="p-4 flex-1 overflow-y-auto space-y-3 text-xs">
+          <p class="text-slate-400 text-xs mb-2">點選任一書籤卡片可直接開啟該書籍並精準跳轉到標記位置：</p>
+          <div id="globalBookmarksContainer" class="space-y-2.5">
+            <!-- 動態注入跨書書籤 -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 5. 小說詳情與章節預覽彈窗 ==================== -->
+    <div id="crawlerDetailModal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-slate-800 border border-slate-700/80 rounded-2xl w-full max-w-2xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <!-- 彈窗頂部 -->
+        <div class="px-6 py-4 bg-slate-800/90 border-b border-slate-700/80 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-red-500"></span>
+            <h3 class="text-base font-bold text-white">小說詳細資訊與章節預覽</h3>
+          </div>
+          <button id="closeDetailModalBtn" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-700 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- 彈窗內容區 -->
+        <div class="flex-1 overflow-y-auto p-6 space-y-5">
+          <!-- 載入中骨架屏 -->
+          <div id="detailModalLoading" class="py-12 flex flex-col items-center justify-center text-slate-400">
+            <i data-lucide="loader" class="w-8 h-8 animate-spin text-red-500 mb-3"></i>
+            <p class="text-sm">正在即時連線抓取目錄與小說中繼資料...</p>
+          </div>
+
+          <!-- 錯誤提示 -->
+          <div id="detailModalError" class="hidden py-8 text-center text-red-400">
+            <i data-lucide="alert-triangle" class="w-10 h-10 mx-auto mb-2 text-red-500"></i>
+            <p id="detailErrorMessage" class="text-sm font-semibold"></p>
+          </div>
+
+          <!-- 內容 -->
+          <div id="detailModalContent" class="hidden space-y-5">
+            <div class="flex gap-5">
+              <div class="w-28 h-36 rounded-xl bg-slate-900 overflow-hidden shrink-0 shadow-lg border border-slate-700/50">
+                <img id="detailModalCover" class="w-full h-full object-cover">
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span id="detailModalSite" class="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 font-semibold">來源站</span>
+                  <span id="detailModalTotalChaps" class="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md font-medium">0 章</span>
+                </div>
+                <h2 id="detailModalTitle" class="text-xl font-bold text-white leading-tight">書名</h2>
+                <p class="text-xs text-slate-400 mt-1">作者：<span id="detailModalAuthor" class="text-white font-medium">佚名</span></p>
+                <p class="text-xs text-slate-400 mt-1 truncate">最新章節：<span id="detailModalLatestChap" class="text-slate-300 font-medium">無</span></p>
+              </div>
+            </div>
+
+            <!-- 作品簡介 -->
+            <div>
+              <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">作品簡介</h4>
+              <p id="detailModalIntro" class="text-xs text-slate-300 leading-relaxed max-h-24 overflow-y-auto bg-slate-900/60 p-3 rounded-xl border border-slate-700/50 whitespace-pre-line"></p>
+            </div>
+
+            <!-- 前章目錄預覽 -->
+            <div>
+              <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">正文章節清單 (前 15 章)</h4>
+              <div id="detailModalChapsList" class="bg-slate-900/60 rounded-xl border border-slate-700/50 p-3 max-h-40 overflow-y-auto divide-y divide-slate-800"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 彈窗底部操作列 -->
+        <div class="px-6 py-4 bg-slate-900/90 border-t border-slate-700/80 flex items-center justify-between">
+          <span class="text-xs text-slate-400">⚡ 下載完成後將自動轉換繁中、打包標準 EPUB 並直接加入書櫃</span>
+          <button id="startDownloadBookBtn" class="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold flex items-center gap-2 transition shadow-lg shadow-red-950/40">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span>立即下載並加入書櫃</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 6. 即時下載進度浮動面板 ==================== -->
+    <div id="crawlerFloatingProgress" class="hidden fixed bottom-6 right-6 z-40 w-96 bg-slate-800/95 border border-slate-700/90 backdrop-blur-md rounded-2xl shadow-2xl p-4 text-white animate-in slide-in-from-bottom-5">
+      <div class="flex items-start justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <i data-lucide="cloud-download" class="w-4 h-4 text-red-400 animate-pulse"></i>
+          <h4 id="floatingProgressTitle" class="text-sm font-bold truncate max-w-[180px]">小說下載中</h4>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="floatingProgressPct" class="text-xs font-bold text-red-400">0%</span>
+          <button id="closeFloatingProgressBtn" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-700 transition" title="關閉小視窗">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 進度條 -->
+      <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden mb-2 border border-slate-700/60">
+        <div id="floatingProgressBar" class="bg-gradient-to-r from-red-600 to-amber-500 h-full transition-all duration-300" style="width: 0%"></div>
+      </div>
+
+      <div class="flex items-center justify-between text-[11px] text-slate-400">
+        <span id="floatingProgressMsg" class="truncate max-w-[200px]">準備下載...</span>
+        <span id="floatingProgressSub" class="truncate font-mono"></span>
+      </div>
+
+      <!-- 下載成功後的動作按鈕 -->
+      <div id="floatingSuccessAction" class="hidden mt-3 pt-3 border-t border-slate-700/70 flex items-center justify-between">
+        <span class="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+          <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+          <span>已直接進書櫃</span>
+        </span>
+        <button id="floatingReadNowBtn" class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1 shadow">
+          <i data-lucide="book-open" class="w-3 h-3"></i>
+          <span>立即閱讀</span>
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 載入應用程式腳本 (加入 Cache Buster 確保載入最新版本) -->
+  <script src="js/app.js?v=20261108_2330"></script>
+  <script src="js/pdf-viewer.js?v=20261108_2330"></script>
+  <script src="js/epub-viewer.js?v=20261108_2330"></script>
+  <script src="js/bookmark-manager.js?v=20261108_2330"></script>
+  <script src="js/annotation-manager.js?v=20261108_2330"></script>
+  <script src="js/crawler.js?v=20261108_2330"></script>
+
+  <script>
+    // 初始化 Lucide 圖標
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.createIcons();
+    });
+  </script>
+</body>
+</html>
