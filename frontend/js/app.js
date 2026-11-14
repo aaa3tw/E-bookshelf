@@ -31,12 +31,18 @@ const dom = {
   globalBookmarksDrawer: document.getElementById('globalBookmarksDrawer'),
   closeGlobalBookmarksBtn: document.getElementById('closeGlobalBookmarksBtn'),
   globalBookmarksContainer: document.getElementById('globalBookmarksContainer'),
-  readerDeleteBookBtn: document.getElementById('readerDeleteBookBtn')
+  readerDeleteBookBtn: document.getElementById('readerDeleteBookBtn'),
+  readerConvertToTwBtn: document.getElementById('readerConvertToTwBtn')
 };
 
 // 初始化載入
 document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
+  // 嚴防瀏覽器密碼管理器/Autofill 誤將 Email 填入書櫃搜尋欄
+  if (dom.searchInput && (dom.searchInput.value.includes('@') || !dom.searchInput.dataset.userTyped)) {
+    dom.searchInput.value = '';
+    AppState.searchQuery = '';
+  }
   await fetchBooks();
   setupDragAndDrop();
 });
@@ -44,10 +50,35 @@ document.addEventListener('DOMContentLoaded', async () => {
 // 事件監聽設置
 function setupEventListeners() {
   // 搜尋過濾
+  const clearSearchBtn = document.getElementById('clearSearchInputBtn');
+  const updateClearBtn = () => {
+    if (clearSearchBtn) {
+      if (dom.searchInput.value.trim().length > 0) {
+        clearSearchBtn.classList.remove('hidden');
+      } else {
+        clearSearchBtn.classList.add('hidden');
+      }
+    }
+  };
+
   dom.searchInput.addEventListener('input', (e) => {
+    // 標記為使用者主動打字，防止被誤判為 autofill
+    dom.searchInput.dataset.userTyped = 'true';
     AppState.searchQuery = e.target.value.trim().toLowerCase();
+    updateClearBtn();
     renderBooksGrid();
   });
+
+  if (clearSearchBtn) {
+    clearSearchBtn.addEventListener('click', () => {
+      dom.searchInput.value = '';
+      delete dom.searchInput.dataset.userTyped;
+      AppState.searchQuery = '';
+      updateClearBtn();
+      renderBooksGrid();
+      dom.searchInput.focus();
+    });
+  }
 
   // 格式篩選按鈕 (全部 / PDF / EPUB)
   document.querySelectorAll('.filter-type-btn').forEach(btn => {
@@ -80,6 +111,14 @@ function setupEventListeners() {
     await confirmAndDeleteBook(AppState.currentBook.id, AppState.currentBook.title, true);
   });
 
+  // 閱讀器內部 EPUB 一鍵轉繁體
+  if (dom.readerConvertToTwBtn) {
+    dom.readerConvertToTwBtn.addEventListener('click', async () => {
+      if (!AppState.currentBook || AppState.currentBook.file_type !== 'epub') return;
+      await convertBookToTraditional(AppState.currentBook.id, AppState.currentBook.title, true);
+    });
+  }
+
   // 收合 / 展開側邊欄
   dom.toggleSidebarBtn.addEventListener('click', () => {
     dom.acrobatSidebar.classList.toggle('hidden');
@@ -111,9 +150,13 @@ function setupEventListeners() {
     dom.globalBookmarksDrawer.classList.add('hidden');
   });
 
-  // 註冊外層視窗的全域鍵盤翻頁監聽
+  // 註冊外層視窗的全域鍵盤與滑鼠滾輪翻頁監聽
   window.addEventListener('keydown', handleGlobalPagingKey);
+  window.addEventListener('wheel', handleGlobalWheelPaging, { passive: false });
 }
+
+// 全域翻頁時間戳防抖
+let lastGlobalPagingTimestamp = 0;
 
 // 全域統一鍵盤翻頁處理器 (供主視窗與 EPUB iframe 內部共同調用)
 function handleGlobalPagingKey(e) {
@@ -139,17 +182,32 @@ function handleGlobalPagingKey(e) {
   // 上一頁條件: 左方向鍵、上方向鍵、PageUp、Shift+空白鍵
   const isPrev = key === 'ArrowLeft' || key === 'ArrowUp' || key === 'PageUp' || (e.code === 'Space' && isShift);
 
+  if (!isNext && !isPrev) return;
+
+  e.preventDefault();
+  if (typeof e.stopPropagation === 'function') e.stopPropagation();
+
+  // 嚴防同一按鍵事件在 iframe 與主視窗間雙重分發
+  if (e._handledByBookshelf) return;
+  e._handledByBookshelf = true;
+
+  // 1. 嚴格過濾作業系統長按按鍵產生的重複事件 (Key Repeat)
+  if (e.repeat) return;
+
+  // 2. 嚴格時間戳防抖節流 (延長至 300ms 內禁止連擊，徹底阻擋雙重事件傳播與連翻)
+  const now = Date.now();
+  if (now - lastGlobalPagingTimestamp < 300) return;
+  lastGlobalPagingTimestamp = now;
+
+  if (window.hideSelectionQuickBar) window.hideSelectionQuickBar();
+
   if (isNext) {
-    e.preventDefault();
-    if (window.hideSelectionQuickBar) window.hideSelectionQuickBar();
     if (AppState.currentBook.file_type === 'pdf') {
       PDFViewerModule.nextPage();
     } else {
       EPUBViewerModule.nextPage();
     }
   } else if (isPrev) {
-    e.preventDefault();
-    if (window.hideSelectionQuickBar) window.hideSelectionQuickBar();
     if (AppState.currentBook.file_type === 'pdf') {
       PDFViewerModule.prevPage();
     } else {
@@ -160,6 +218,73 @@ function handleGlobalPagingKey(e) {
 
 // 暴露到 window 供 iframe 內容調用
 window.handleGlobalPagingKey = handleGlobalPagingKey;
+
+// 全域滑鼠滾輪翻頁時間戳防抖
+let lastGlobalWheelTimestamp = 0;
+
+// 全域統一滑鼠滾輪翻頁處理器 (供主視窗與 EPUB iframe 內部共同調用)
+function handleGlobalWheelPaging(e) {
+  // 1. 處於書櫃清單視圖，或未載入任何書籍，不攔截滾輪（保持書櫃正常滾動）
+  if (!dom.bookshelfView.classList.contains('hidden') || !AppState.currentBook) return;
+
+  // 2. 若使用者按住 Ctrl 或 Meta 鍵滾動，保留標準縮放功能
+  if (e.ctrlKey || e.metaKey) return;
+
+  // 3. 嚴防同一滾輪事件在 iframe 與外層視窗重複觸發
+  if (e._handledByBookshelfWheel) return;
+
+  // 4. 檢查滾輪目標是否位於特定的獨立可滾動面板內（如書籤清單、筆記列表、章節編輯輸入框等）
+  const target = e.target;
+  if (target && typeof target.closest === 'function') {
+    const scrollableModal = target.closest('#bookmarkModal, #floatingNoteBox, #epubChapterContentArea, #sidebarOutline, #sidebarThumbnails, .overflow-y-auto, .overflow-auto');
+    if (scrollableModal) {
+      // 在可滾動面板內部時，允許正常滾動面板內容
+      return;
+    }
+  }
+
+  // 5. 判斷垂直滾動幅度 (忽略微小手震或微晃動)
+  if (Math.abs(e.deltaY) < 18) return;
+
+  // 標記為已被書櫃滾輪處理器接管
+  e._handledByBookshelfWheel = true;
+
+  // 6. 阻斷預設行為（防止引發外層頁面或容器的預設位移破壞排版）
+  if (e.cancelable) {
+    e.preventDefault();
+  }
+  if (typeof e.stopPropagation === 'function') {
+    e.stopPropagation();
+  }
+
+  // 7. 防暴衝防抖機制 (Cool-down 節流 280ms，杜絕實體滾輪單次滾動發出多個事件導致連翻)
+  const now = Date.now();
+  if (now - lastGlobalWheelTimestamp < 280) {
+    return;
+  }
+  lastGlobalWheelTimestamp = now;
+
+  if (window.hideSelectionQuickBar) window.hideSelectionQuickBar();
+
+  // 8. 滾輪向下滾動 (deltaY > 0) -> 下一頁
+  //    滾輪向上滾動 (deltaY < 0) -> 上一頁
+  if (e.deltaY > 0) {
+    if (AppState.currentBook.file_type === 'pdf') {
+      PDFViewerModule.nextPage();
+    } else {
+      EPUBViewerModule.nextPage();
+    }
+  } else if (e.deltaY < 0) {
+    if (AppState.currentBook.file_type === 'pdf') {
+      PDFViewerModule.prevPage();
+    } else {
+      EPUBViewerModule.prevPage();
+    }
+  }
+}
+
+// 暴露到 window 供 iframe 內容調用
+window.handleGlobalWheelPaging = handleGlobalWheelPaging;
 
 // 取得書籍列表
 async function fetchBooks() {
@@ -187,19 +312,62 @@ function updateStatistics() {
   dom.booksCountBadge.innerText = `共 ${total} 本`;
 }
 
+// HTML 跳脫輔助防護
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // 渲染書籍網格
 function renderBooksGrid() {
   dom.booksGrid.innerHTML = '';
   
+  const query = (AppState.searchQuery || '').trim().toLowerCase();
   const filtered = AppState.books.filter(book => {
-    const matchType = AppState.filterType === 'all' || book.file_type.toLowerCase() === AppState.filterType;
-    const matchSearch = !AppState.searchQuery || 
-      book.title.toLowerCase().includes(AppState.searchQuery) || 
-      book.author.toLowerCase().includes(AppState.searchQuery);
+    const title = (book.title || '').toLowerCase();
+    const author = (book.author || '').toLowerCase();
+    const matchType = AppState.filterType === 'all' || (book.file_type && book.file_type.toLowerCase() === AppState.filterType);
+    const matchSearch = !query || title.includes(query) || author.includes(query);
     return matchType && matchSearch;
   });
 
   if (filtered.length === 0) {
+    if (query || AppState.filterType !== 'all') {
+      dom.emptyShelfPrompt.classList.add('hidden');
+      dom.booksGrid.innerHTML = `
+        <div class="col-span-full py-16 text-center text-slate-400">
+          <i data-lucide="search-x" class="w-12 h-12 mx-auto mb-3 text-slate-500"></i>
+          <p class="text-base font-semibold text-slate-200">找不到符合條件的書籍</p>
+          <p class="text-xs text-slate-400 mt-1">
+            目前關鍵字：<span class="text-red-400 font-mono font-bold">${escapeHtml(query || '無')}</span>
+            ${AppState.filterType !== 'all' ? `，格式：<span class="text-red-400 font-bold">${AppState.filterType.toUpperCase()}</span>` : ''}
+          </p>
+          <button id="resetSearchFilterBtn" class="mt-4 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-medium transition inline-flex items-center gap-1.5 shadow">
+            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> 清除搜尋篩選，顯示所有書籍
+          </button>
+        </div>
+      `;
+      const resetBtn = document.getElementById('resetSearchFilterBtn');
+      if (resetBtn) {
+        resetBtn.onclick = () => {
+          AppState.searchQuery = '';
+          AppState.filterType = 'all';
+          if (dom.searchInput) dom.searchInput.value = '';
+          document.querySelectorAll('.filter-type-btn').forEach(b => {
+            if (b.dataset.type === 'all') b.classList.add('active', 'bg-red-600', 'text-white');
+            else b.classList.remove('active', 'bg-red-600', 'text-white');
+          });
+          renderBooksGrid();
+        };
+      }
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
     dom.emptyShelfPrompt.classList.remove('hidden');
     return;
   }
@@ -212,21 +380,33 @@ function renderBooksGrid() {
     const isPdf = book.file_type === 'pdf';
     const badgeColor = isPdf ? 'bg-red-600' : 'bg-emerald-600';
     const progress = Math.round(book.current_progress || 0);
+    const safeTitle = escapeHtml(book.title || '未命名書籍');
+    const safeAuthor = escapeHtml(book.author || '未知作者');
 
     card.innerHTML = `
       <div class="book-cover-container w-full aspect-[1/1.4] bg-slate-900 rounded-lg overflow-hidden relative mb-3">
-        <img src="${book.cover_image}" alt="${book.title}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+        <img src="${book.cover_image}" alt="${safeTitle}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
              onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'200\\' height=\\'280\\' viewBox=\\'0 0 200 280\\'><rect width=\\'200\\' height=\\'280\\' fill=\\'%23334155\\'/><text x=\\'50%\\' y=\\'50%\\' fill=\\'%2394a3b8\\' font-size=\\'14\\' text-anchor=\\'middle\\'>封面載入中</text></svg>';">
         
         <div class="absolute top-2 left-2 ${badgeColor} text-[10px] font-bold text-white px-2 py-0.5 rounded shadow uppercase z-10">
-          ${book.file_type}
+          ${escapeHtml(book.file_type)}
         </div>
 
-        <!-- 刪除書籍按鈕 (垃圾桶) -->
-        <button class="delete-book-btn absolute top-2 right-2 bg-slate-900/80 hover:bg-red-600 text-slate-300 hover:text-white p-1.5 rounded-md transition shadow-md z-20 opacity-0 group-hover:opacity-100" 
-                title="刪除此書" data-id="${book.id}" data-title="${book.title}">
-          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-        </button>
+        <!-- 卡片右上角快捷操作區 -->
+        <div class="absolute top-2 right-2 flex items-center gap-1 z-20">
+          ${!isPdf ? `
+          <button class="convert-tw-btn bg-slate-900/80 hover:bg-emerald-600 text-slate-300 hover:text-white px-1.5 py-1 rounded-md transition shadow-md opacity-0 group-hover:opacity-100 text-[10px] font-bold" 
+                  title="一鍵將此 EPUB 轉為台灣繁體中文" data-id="${book.id}" data-title="${safeTitle}">
+            繁
+          </button>
+          ` : ''}
+
+          <!-- 刪除書籍按鈕 (垃圾桶) -->
+          <button class="delete-book-btn bg-slate-900/80 hover:bg-red-600 text-slate-300 hover:text-white p-1.5 rounded-md transition shadow-md opacity-0 group-hover:opacity-100" 
+                  title="刪除此書" data-id="${book.id}" data-title="${safeTitle}">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
 
         ${book.bookmarks_count > 0 ? `
           <div class="absolute bottom-2 right-2 bg-amber-500/90 text-slate-900 text-[10px] font-extrabold px-1.5 py-0.5 rounded flex items-center gap-0.5 shadow z-10">
@@ -243,10 +423,10 @@ function renderBooksGrid() {
 
       <div class="flex-1 flex flex-col justify-between">
         <div>
-          <h3 class="font-bold text-sm text-slate-100 line-clamp-2 leading-snug group-hover:text-red-400 transition" title="${book.title}">
-            ${book.title}
+          <h3 class="font-bold text-sm text-slate-100 line-clamp-2 leading-snug group-hover:text-red-400 transition" title="${safeTitle}">
+            ${safeTitle}
           </h3>
-          <p class="text-xs text-slate-400 truncate mt-1">${book.author}</p>
+          <p class="text-xs text-slate-400 truncate mt-1">${safeAuthor}</p>
         </div>
 
         <div class="mt-3 pt-2 border-t border-slate-700/60">
@@ -261,11 +441,20 @@ function renderBooksGrid() {
       </div>
     `;
 
-    // 點擊卡片開啟書籍 (若點擊的是刪除按鈕則忽略)
+    // 點擊卡片開啟書籍 (若點擊的是刪除或轉繁體按鈕則忽略)
     card.addEventListener('click', (e) => {
-      if (e.target.closest('.delete-book-btn')) return;
+      if (e.target.closest('.delete-book-btn') || e.target.closest('.convert-tw-btn')) return;
       openBook(book.id);
     });
+
+    // 綁定轉繁體按鈕 (EPUB 專屬)
+    const convBtn = card.querySelector('.convert-tw-btn');
+    if (convBtn) {
+      convBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await convertBookToTraditional(book.id, book.title, false);
+      });
+    }
 
     // 綁定刪除按鈕
     const delBtn = card.querySelector('.delete-book-btn');
@@ -278,6 +467,29 @@ function renderBooksGrid() {
   });
 
   lucide.createIcons();
+}
+
+// 繁體轉換共用函式
+async function convertBookToTraditional(bookId, bookTitle, reloadIfOpen = false) {
+  const confirmed = confirm(`確定要將《${bookTitle}》全量轉換為台灣繁體中文嗎？\n（系統將自動轉換所有章節內文與標題，並保留完整排版與圖片）`);
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/books/${bookId}/convert-to-traditional`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '轉換失敗');
+
+    alert(data.message || `《${bookTitle}》已成功轉換為繁體中文！`);
+
+    if (reloadIfOpen && AppState.currentBook && AppState.currentBook.id === bookId) {
+      await openBook(bookId);
+    } else {
+      await fetchBooks();
+    }
+  } catch (err) {
+    console.error('Failed to convert EPUB to traditional:', err);
+    alert('轉換失敗：' + (err.message || '請確認後端連線'));
+  }
 }
 
 // 刪除書籍共用函式
@@ -318,10 +530,12 @@ async function openBook(bookId) {
 
     // 依格式調度對應閱讀器
     if (book.file_type === 'pdf') {
+      if (dom.readerConvertToTwBtn) dom.readerConvertToTwBtn.classList.add('hidden');
       document.getElementById('epubEditTabBtn').classList.add('hidden');
       document.getElementById('sidebarThumbTabBtn').classList.remove('hidden');
       await PDFViewerModule.loadPdf(book);
     } else {
+      if (dom.readerConvertToTwBtn) dom.readerConvertToTwBtn.classList.remove('hidden');
       document.getElementById('epubEditTabBtn').classList.remove('hidden');
       document.getElementById('sidebarThumbTabBtn').classList.add('hidden');
       await EPUBViewerModule.loadEpub(book);
@@ -354,6 +568,14 @@ function switchView(view) {
   if (view === 'bookshelf') {
     if (mainAppHeader) mainAppHeader.classList.remove('hidden');
     if (searchGroup) searchGroup.classList.remove('invisible');
+
+    // 嚴防切換回書櫃時受瀏覽器 Autofill 污染
+    if (dom.searchInput && (dom.searchInput.value.includes('@') || !dom.searchInput.dataset.userTyped)) {
+      dom.searchInput.value = '';
+      AppState.searchQuery = '';
+      const clearBtn = document.getElementById('clearSearchInputBtn');
+      if (clearBtn) clearBtn.classList.add('hidden');
+    }
     
     // 更新導覽列高亮
     if (navBookshelfBtn) {
@@ -513,3 +735,5 @@ async function openGlobalBookmarksDrawer() {
 // 暴露全域函數
 window.openBookById = openBook;
 window.fetchBooks = fetchBooks;
+window.AppState = AppState;
+window.renderBooksGrid = renderBooksGrid;

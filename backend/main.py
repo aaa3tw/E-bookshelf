@@ -39,11 +39,17 @@ async def add_cache_control_header(request, call_next):
         response.headers["Expires"] = "0"
     return response
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-BOOKS_DIR = DATA_DIR / "books"
-COVERS_DIR = DATA_DIR / "covers"
-FRONTEND_DIR = BASE_DIR / "frontend"
+try:
+    from app_paths import BASE_DIR, DATA_DIR, BOOKS_DIR, COVERS_DIR, FRONTEND_DIR
+except ImportError:
+    try:
+        from .app_paths import BASE_DIR, DATA_DIR, BOOKS_DIR, COVERS_DIR, FRONTEND_DIR
+    except ImportError:
+        BASE_DIR = Path(__file__).resolve().parent.parent
+        DATA_DIR = BASE_DIR / "data"
+        BOOKS_DIR = DATA_DIR / "books"
+        COVERS_DIR = DATA_DIR / "covers"
+        FRONTEND_DIR = BASE_DIR / "frontend"
 
 BOOKS_DIR.mkdir(parents=True, exist_ok=True)
 COVERS_DIR.mkdir(parents=True, exist_ok=True)
@@ -142,7 +148,11 @@ def scan_existing_books():
                 if cursor.fetchone():
                     continue
                 
-                book_id = str(uuid.uuid4())
+                # 若檔名以標準 UUID 開頭，優先使用該 UUID 以保持與封面與下載任務一致
+                if len(raw_name) >= 36 and raw_name[8] == '-' and raw_name[13] == '-' and raw_name[18] == '-' and raw_name[23] == '-':
+                    book_id = raw_name[:36]
+                else:
+                    book_id = str(uuid.uuid4())
                 ext = file.suffix.lower()[1:]
                 file_size = file.stat().st_size
                 now = datetime.now().isoformat()
@@ -240,6 +250,13 @@ async def upload_book(file: UploadFile = File(...)):
     if file_type == "pdf":
         info = book_service.process_pdf(save_path, book_id)
     else:
+        # 上傳 EPUB 時，自動檢測若為簡體中文則轉換為繁體中文
+        try:
+            from epub_converter import auto_convert_epub_if_simplified
+            auto_convert_epub_if_simplified(str(save_path))
+        except Exception as e:
+            print(f"[Upload Convert Warning] {e}")
+
         info = book_service.process_epub(save_path, book_id)
         
     with get_db() as conn:
@@ -653,6 +670,110 @@ def sync_crawler_with_bookshelf():
         return {"status": "ok", "data": res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"同步失敗: {str(e)}")
+
+# ----------------- Z-Library 專用與繁簡轉換 API -----------------
+
+class ZlibConfigRequest(BaseModel):
+    remix_user_key: Optional[str] = ""
+    remix_userid: Optional[str] = ""
+    email: Optional[str] = ""
+
+class ZlibLoginRequest(BaseModel):
+    email: str
+    password: str
+
+@app.get("/api/zlib/config")
+def get_zlib_config():
+    """取得 Z-Library 配置狀態"""
+    from zlib_client import load_zlib_config
+    cfg = load_zlib_config()
+    key = cfg.get("remix_user_key", "")
+    return {
+        "has_token": bool(key),
+        "token_preview": f"{key[:6]}******" if key else "",
+        "email": cfg.get("email", ""),
+        "user_id": cfg.get("remix_userid", ""),
+        "personal_domains": cfg.get("personal_domains", [])
+    }
+
+@app.post("/api/zlib/config")
+def set_zlib_config(data: ZlibConfigRequest):
+    """設定 Z-Library 帳號與金鑰"""
+    from zlib_client import load_zlib_config, save_zlib_config
+    cfg = load_zlib_config()
+    if data.remix_user_key is not None:
+        cfg["remix_user_key"] = data.remix_user_key.strip()
+    if data.remix_userid:
+        cfg["remix_userid"] = data.remix_userid.strip()
+    if data.email:
+        cfg["email"] = data.email.strip()
+    save_zlib_config(cfg)
+    return {"status": "ok", "message": "Z-Library 配置儲存成功"}
+
+@app.post("/api/zlib/login")
+def zlib_api_login(data: ZlibLoginRequest):
+    """使用 Email 與密碼直接登入 Z-Library 並取得專屬金鑰與節點"""
+    from zlib_client import login_zlib
+    res = login_zlib(data.email, data.password)
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("message", "登入失敗"))
+    return res
+
+@app.post("/api/books/{book_id}/convert-to-traditional")
+def convert_book_to_traditional(book_id: str):
+    """手動將書櫃中的書籍轉換為繁體中文"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_path, file_type, title FROM books WHERE id = ?", (book_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="找不到此書籍")
+        if row["file_type"] != "epub":
+            raise HTTPException(status_code=400, detail="目前僅支援 EPUB 電子書自動繁體轉換")
+
+        fpath = Path(row["file_path"])
+        if not fpath.exists():
+            raise HTTPException(status_code=404, detail="實體檔案不存在")
+
+        try:
+            from epub_converter import convert_epub_to_traditional, is_simplified_chinese_epub
+            convert_epub_to_traditional(str(fpath))
+            # 重新解析中繼資料更新標題
+            info = book_service.process_epub(fpath, book_id)
+            cursor.execute("UPDATE books SET title = ?, author = ?, updated_at = ? WHERE id = ?",
+                           (info["title"], info["author"], datetime.now().isoformat(), book_id))
+            conn.commit()
+            return {"status": "ok", "message": f"《{info['title']}》已成功全量翻譯轉換為繁體中文！"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"轉換繁體失敗: {str(e)}")
+
+
+class SettingPayload(BaseModel):
+    value: str
+
+@app.get("/api/settings")
+def get_settings():
+    """取得所有閱讀器持久化設定（字體大小、字型、字重、主題等）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM settings")
+        rows = cursor.fetchall()
+        return {row["key"]: row["value"] for row in rows}
+
+@app.post("/api/settings/{key}")
+def set_setting(key: str, payload: SettingPayload):
+    """更新或儲存指定設定"""
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (key, payload.value, now)
+        )
+        conn.commit()
+    return {"status": "ok", "key": key, "value": payload.value}
+
 
 # 掛載前端靜態檔案
 app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

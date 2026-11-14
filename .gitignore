@@ -9,6 +9,21 @@ venv/
 .venv/
 ENV/
 
+# PyInstaller & Build Outputs
+build/
+dist/
+test_build/
+test_dist/
+assets_build/
+test_pyinstaller.*
+*.spec.bak
+
+# Test files & temporary scripts
+test_*.py
+check_*.py
+heal_*.py
+*.epub
+
 # Acrobat Bookshelf Data & Cache (保護隱私與書籍版權)
 data/books/*
 !data/books/.gitkeep
@@ -20,6 +35,14 @@ data/*.db
 data/*.sqlite
 data/*.sqlite3
 data/tracked_novels.json
+data/*.json
+
+# User Credentials & Secrets
+*zlib_config.json
+backend/zlib_config.json
+backend/crawler/zlib_config.json
+backend/crawler/po18_cookies.json
+*.cookies.json
 
 # IDE & OS
 .idea/
@@ -30,11 +53,9 @@ data/tracked_novels.json
 Thumbs.db
 desktop.ini
 
-# Crawler Cache & Secrets
+# Crawler Cache
 backend/crawler/.novel_cache/
-backend/crawler/po18_cookies.json
 .novel_cache/
-*.cookies.json
 
 # Logs & Temporary
 *.log

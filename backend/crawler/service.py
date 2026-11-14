@@ -26,10 +26,18 @@ from .exporter import export_epub, export_txt
 CRAWLER_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = CRAWLER_DIR.parent
 ROOT_DIR = BACKEND_DIR.parent
-DATA_DIR = ROOT_DIR / "data"
-BOOKS_DIR = DATA_DIR / "books"
-COVERS_DIR = DATA_DIR / "covers"
-CACHE_DIR = DATA_DIR / ".novel_cache"
+try:
+    from app_paths import DATA_DIR, BOOKS_DIR, COVERS_DIR, CACHE_DIR, TRACKED_FILE, DB_PATH
+except ImportError:
+    try:
+        from ..app_paths import DATA_DIR, BOOKS_DIR, COVERS_DIR, CACHE_DIR, TRACKED_FILE, DB_PATH
+    except ImportError:
+        DATA_DIR = ROOT_DIR / "data"
+        BOOKS_DIR = DATA_DIR / "books"
+        COVERS_DIR = DATA_DIR / "covers"
+        CACHE_DIR = DATA_DIR / ".novel_cache"
+        TRACKED_FILE = DATA_DIR / "tracked_novels.json"
+        DB_PATH = DATA_DIR / "bookshelf.db"
 
 # 若舊有 novel_crawler 快取存在，建立相容鏈接或備用
 LEGACY_CACHE_DIR = Path("E:/AI_project/novel_crawler/.novel_cache")
@@ -39,7 +47,6 @@ else:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     DEFAULT_CACHE = str(CACHE_DIR)
 
-TRACKED_FILE = DATA_DIR / "tracked_novels.json"
 LEGACY_TRACKED_FILE = Path("E:/AI_project/novel_crawler/bookshelf.json")
 
 # 若 tracked_novels.json 不存在但舊版 bookshelf.json 存在，自動導入
@@ -89,6 +96,14 @@ SUPPORTED_SITES = [
         "badge": "原創浪漫",
         "desc": "知名女性向原創文學站點（支援書號或文章網址）",
         "supports": ["url"]
+    },
+    {
+        "id": "zlib",
+        "name": "Z-Library",
+        "domain": "zh.z-lib.by",
+        "badge": "世界書庫",
+        "desc": "全球海量電子書庫，支援 EPUB 書籍直接下載與繁體中文自動翻譯轉換",
+        "supports": ["explore", "search", "url"]
     }
 ]
 
@@ -676,6 +691,55 @@ class CrawlerService:
                 })
                 rank += 1
 
+        elif site_id == "zlib":
+            try:
+                try:
+                    from zlib_client import search_zlib
+                except ImportError:
+                    from .zlib_client import search_zlib
+
+                z_kw_map = {
+                    "all": "熱門小說",
+                    "xuanhuan": "玄幻奇幻",
+                    "dushi": "都市小說",
+                    "wuxia": "武俠仙俠",
+                    "lishi": "歷史小說",
+                    "kehuan": "科幻",
+                    "youxi": "遊戲",
+                    "danmei": "言情校園"
+                }
+                search_kw = z_kw_map.get(cat, "熱門小說")
+                z_books = search_zlib(search_kw, extension="epub", limit=20)
+                for b in z_books:
+                    badge = f"TOP {rank}"
+                    if rank == 1:
+                        badge = "👑 榜首 TOP 1"
+                    elif rank == 2:
+                        badge = "🥈 TOP 2"
+                    elif rank == 3:
+                        badge = "🥉 TOP 3"
+                    elif rank <= 10:
+                        badge = f"🔥 TOP {rank}"
+
+                    novels.append({
+                        "rank": rank,
+                        "book_id": b["book_id"],
+                        "site": "zlib",
+                        "site_name": "Z-Library",
+                        "title": to_traditional(b["title"]),
+                        "author": to_traditional(b.get("author", "佚名")),
+                        "intro": f"格式: {b.get('extension', 'EPUB').upper()} | 大小: {b.get('filesize', '未知')} | 年份: {b.get('year', '未知')}",
+                        "category": cat,
+                        "url": b["web_url"],
+                        "cover_url": b.get("cover_url", ""),
+                        "badge": badge,
+                        "is_zlib": True,
+                        "hash": b.get("hash", "")
+                    })
+                    rank += 1
+            except Exception as e:
+                print(f"[Explore] Z-Library error: {e}")
+
         return novels[:30]
 
     def search_books(self, keyword: str, site_id: Optional[str] = None) -> list[dict]:
@@ -756,6 +820,30 @@ class CrawlerService:
             except Exception as e:
                 print(f"[Search] Timotxt failed: {e}")
 
+        if site_id == "zlib" or not site_id:
+            try:
+                try:
+                    from zlib_client import search_zlib
+                except ImportError:
+                    from .zlib_client import search_zlib
+
+                for b in search_zlib(kw, extension="epub", limit=10):
+                    results.append({
+                        "book_id": b["book_id"],
+                        "site": "zlib",
+                        "site_name": "Z-Library",
+                        "title": to_traditional(b["title"]),
+                        "author": to_traditional(b.get("author", "佚名")),
+                        "intro": f"格式: {b.get('extension', 'EPUB').upper()} | 大小: {b.get('filesize', '未知')} | 年份: {b.get('year', '未知')}",
+                        "url": b["web_url"],
+                        "cover_url": b.get("cover_url", ""),
+                        "badge": "Z-Library",
+                        "is_zlib": True,
+                        "hash": b.get("hash", "")
+                    })
+            except Exception as e:
+                print(f"[Search] Z-Library failed: {e}")
+
         return results
 
     def parse_book_detail(self, url: str) -> dict:
@@ -811,6 +899,85 @@ class CrawlerService:
 
         try:
             task["status"] = "connecting"
+
+            # 檢查是否為 Z-Library 網址或 Z-Lib 書籍
+            m_zlib = re.search(r'z-lib\.[a-zA-Z]+/book/([a-zA-Z0-9]+)(?:/([a-zA-Z0-9]+))?', url)
+            if m_zlib:
+                try:
+                    from zlib_client import download_zlib_book, load_zlib_config, search_zlib
+                except ImportError:
+                    from .zlib_client import download_zlib_book, load_zlib_config, search_zlib
+
+                z_book_id = m_zlib.group(1)
+                z_hash = m_zlib.group(2) or ""
+                task["message"] = f"正在連接 Z-Library (ID: {z_book_id})..."
+
+                file_uuid = str(uuid.uuid4())
+                epub_filename = f"{file_uuid}_zlib_{z_book_id}.epub"
+                epub_path = BOOKS_DIR / epub_filename
+
+                task["status"] = "downloading"
+                task["progress"] = 30
+                task["message"] = "正在向 Z-Library 請求 EPUB 檔案下載..."
+
+                ok, dl_msg = download_zlib_book(z_book_id, z_hash, str(epub_path))
+                if not ok:
+                    task["error"] = dl_msg
+                    task["web_url"] = f"https://zh.z-lib.by/book/{z_book_id}/{z_hash}"
+                    raise RuntimeError(dl_msg)
+
+                task["progress"] = 85
+                task["message"] = "Z-Lib 電子書下載成功，正在檢測語言並轉換繁體中文..."
+
+                # 簡體轉繁體
+                try:
+                    try:
+                        from epub_converter import auto_convert_epub_if_simplified
+                    except ImportError:
+                        from .epub_converter import auto_convert_epub_if_simplified
+                    auto_convert_epub_if_simplified(str(epub_path))
+                except Exception as e:
+                    print(f"[Z-Lib Convert] {e}")
+
+                task["progress"] = 95
+                task["message"] = "註冊至電子書櫃資料庫..."
+                try:
+                    try:
+                        from book_service import process_epub
+                        from main import scan_existing_books
+                    except ImportError:
+                        from ..book_service import process_epub
+                        from ..main import scan_existing_books
+                    info = process_epub(epub_path, file_uuid)
+                    scan_existing_books()
+                    task["title"] = info.get("title", f"Z-Lib Book {z_book_id}")
+                    task["author"] = info.get("author", "未知作者")
+
+                    # 查詢入庫後的真實 book id
+                    try:
+                        import sqlite3
+                        db_path = DB_PATH
+                        with sqlite3.connect(str(db_path)) as conn:
+                            c = conn.cursor()
+                            c.execute("SELECT id FROM books WHERE file_name = ? OR file_path LIKE ? ORDER BY created_at DESC LIMIT 1", (epub_filename, f"%{epub_filename}"))
+                            row = c.fetchone()
+                            if row:
+                                task["book_uuid"] = row[0]
+                            else:
+                                task["book_uuid"] = file_uuid
+                    except Exception as err:
+                        print(f"[Z-Lib DB Query] {err}")
+                        task["book_uuid"] = file_uuid
+                except Exception as e:
+                    print(f"[Z-Lib Import] {e}")
+                    task["book_uuid"] = file_uuid
+
+                task["status"] = "completed"
+                task["progress"] = 100
+                task["book_file"] = epub_filename
+                task["message"] = f"《{task['title']}》已成功下載並自動轉為繁體中文匯入書櫃！"
+                return
+
             downloader = NovelDownloader(base_url=url, cache_dir=DEFAULT_CACHE)
             
             # 1. 取得中繼資料
@@ -857,6 +1024,16 @@ class CrawlerService:
             cover_bytes = downloader.fetch_cover_bytes(meta.get('cover_url'))
             export_epub(meta, downloaded_chapters, str(epub_path), cover_bytes=cover_bytes)
 
+            # 檢測若為簡體中文則自動轉為繁體中文
+            try:
+                try:
+                    from epub_converter import auto_convert_epub_if_simplified
+                except ImportError:
+                    from .epub_converter import auto_convert_epub_if_simplified
+                auto_convert_epub_if_simplified(str(epub_path))
+            except Exception as e:
+                print(f"[Convert Warning] 自動繁簡轉換失敗: {e}")
+
             # 5. 匯入書櫃資料庫
             task["progress"] = 98
             task["message"] = "電子書封裝完成，正在註冊至書櫃資料庫..."
@@ -894,10 +1071,24 @@ class CrawlerService:
             }
             self._save_tracked()
 
+            # 確保取得真實入庫的 book_uuid
+            try:
+                import sqlite3
+                db_path = DB_PATH
+                with sqlite3.connect(str(db_path)) as conn:
+                    c = conn.cursor()
+                    c.execute("SELECT id FROM books WHERE file_name = ? OR file_path LIKE ? ORDER BY created_at DESC LIMIT 1", (epub_filename, f"%{epub_filename}"))
+                    row = c.fetchone()
+                    if row:
+                        task["book_uuid"] = row[0]
+                    else:
+                        task["book_uuid"] = file_uuid
+            except Exception:
+                task["book_uuid"] = file_uuid
+
             task["status"] = "completed"
             task["progress"] = 100
             task["book_file"] = epub_filename
-            task["book_uuid"] = file_uuid
             task["message"] = f"🎉《{task['title']}》已成功下載並直接加入書櫃！"
 
         except Exception as e:

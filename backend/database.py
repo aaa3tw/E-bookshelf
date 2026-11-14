@@ -4,7 +4,14 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-DB_PATH = Path(__file__).resolve().parent.parent / "data" / "bookshelf.db"
+try:
+    from app_paths import DB_PATH, DATA_DIR
+except ImportError:
+    try:
+        from .app_paths import DB_PATH, DATA_DIR
+    except ImportError:
+        DB_PATH = Path(__file__).resolve().parent.parent / "data" / "bookshelf.db"
+        DATA_DIR = DB_PATH.parent
 
 def get_db():
     conn = sqlite3.connect(str(DB_PATH))
@@ -68,6 +75,15 @@ def init_db():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY(book_id) REFERENCES books(id) ON DELETE CASCADE
+        )
+        ''')
+
+        # 使用者與全域設定表 (字體大小、字型、字重、主題等偏好記憶)
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
         ''')
         

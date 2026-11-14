@@ -218,9 +218,11 @@ const AnnotationModule = (() => {
       quickBar.style.opacity = '0';
       quickBar.style.pointerEvents = 'none';
     }
-    // 徹底清除文字反白選取，防範反覆被觸發
+    // 僅在非輸入框焦點時清除頁面文字反白選取 (避免清除輸入框的文字游標 caret)
     try {
-      if (window.getSelection) {
+      const activeTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toUpperCase() : '';
+      const isInput = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || document.activeElement?.isContentEditable;
+      if (!isInput && window.getSelection) {
         window.getSelection().removeAllRanges();
       }
     } catch (e) {}
@@ -405,28 +407,52 @@ const AnnotationModule = (() => {
       hideQuickBar();
     });
 
-    // 閱讀防遮擋：點擊畫面外部、滾動、翻頁或按鍵立即瞬間關閉小視窗 (使用 Capture 捕獲機制徹底防攔截)
+    // 閱讀防遮擋：點擊畫面外部關閉快捷選取工具列 (防干擾輸入框與文字游標)
     const handleOutsideDismiss = (e) => {
-      if (!e.target.closest('#selectionQuickBar') && !e.target.closest('#floatingNoteBox')) {
-        hideQuickBar();
+      // 若 quickBar 本來就沒有顯示，直接返回，絕不干擾正常的點擊與文字輸入
+      if (!quickBar || quickBar.classList.contains('hidden') || quickBar.style.display === 'none') {
+        return;
       }
+      // 點擊快捷列本身或便籤筆記方塊內部時不關閉
+      if (e.target && (e.target.closest('#selectionQuickBar') || e.target.closest('#floatingNoteBox'))) {
+        return;
+      }
+      hideQuickBar();
     };
-    document.addEventListener('pointerdown', handleOutsideDismiss, true);
-    document.addEventListener('mousedown', handleOutsideDismiss, true);
-    document.addEventListener('click', handleOutsideDismiss, true);
 
-    window.addEventListener('wheel', hideQuickBar, { passive: true });
-    window.addEventListener('scroll', hideQuickBar, { passive: true });
+    // 採用常規冒泡事件，避免捕獲階段搶先清空 input 游標
+    document.addEventListener('pointerdown', handleOutsideDismiss);
+    document.addEventListener('click', handleOutsideDismiss);
+
+    window.addEventListener('wheel', () => {
+      if (quickBar && !quickBar.classList.contains('hidden')) hideQuickBar();
+    }, { passive: true });
+    window.addEventListener('scroll', () => {
+      if (quickBar && !quickBar.classList.contains('hidden')) hideQuickBar();
+    }, { passive: true });
     window.addEventListener('blur', hideQuickBar);
-    document.getElementById('viewerMainArea')?.addEventListener('scroll', hideQuickBar, { passive: true });
-    document.getElementById('pdfContainer')?.addEventListener('scroll', hideQuickBar, { passive: true });
-    document.getElementById('epubContainer')?.addEventListener('scroll', hideQuickBar, { passive: true });
+    document.getElementById('viewerMainArea')?.addEventListener('scroll', () => {
+      if (quickBar && !quickBar.classList.contains('hidden')) hideQuickBar();
+    }, { passive: true });
+    document.getElementById('pdfContainer')?.addEventListener('scroll', () => {
+      if (quickBar && !quickBar.classList.contains('hidden')) hideQuickBar();
+    }, { passive: true });
+    document.getElementById('epubContainer')?.addEventListener('scroll', () => {
+      if (quickBar && !quickBar.classList.contains('hidden')) hideQuickBar();
+    }, { passive: true });
 
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' || ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' '].includes(e.key)) {
-        hideQuickBar();
+      // 若使用者正在輸入框或文字區塊打字，絕不觸發 quickBar 關閉或清除選取
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) {
+        return;
       }
-    }, true);
+      if (quickBar && !quickBar.classList.contains('hidden')) {
+        if (e.key === 'Escape' || ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' '].includes(e.key)) {
+          hideQuickBar();
+        }
+      }
+    });
   }
 
   // 設置畫布手繪塗鴉與便籤事件

@@ -11,10 +11,16 @@ from ebooklib import epub
 from bs4 import BeautifulSoup
 from PIL import Image, ImageDraw, ImageFont
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-BOOKS_DIR = DATA_DIR / "books"
-COVERS_DIR = DATA_DIR / "covers"
-THUMBS_DIR = DATA_DIR / "thumbnails"
+try:
+    from app_paths import DATA_DIR, BOOKS_DIR, COVERS_DIR, THUMBS_DIR
+except ImportError:
+    try:
+        from .app_paths import DATA_DIR, BOOKS_DIR, COVERS_DIR, THUMBS_DIR
+    except ImportError:
+        DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+        BOOKS_DIR = DATA_DIR / "books"
+        COVERS_DIR = DATA_DIR / "covers"
+        THUMBS_DIR = DATA_DIR / "thumbnails"
 
 COVERS_DIR.mkdir(parents=True, exist_ok=True)
 THUMBS_DIR.mkdir(parents=True, exist_ok=True)

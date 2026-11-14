@@ -4,10 +4,30 @@ const EPUBViewerModule = (() => {
   let bookInstance = null;
   let rendition = null;
   let currentBook = null;
-  let currentFontSize = 100;
-  let currentTheme = 'white';
+  let currentFontSize = parseInt(localStorage.getItem('bookshelf_font_size') || '100', 10);
+  if (isNaN(currentFontSize) || currentFontSize < 70 || currentFontSize > 220) {
+    currentFontSize = 100;
+  }
+  let currentTheme = localStorage.getItem('bookshelf_theme') || 'white';
+  let currentFontFamily = localStorage.getItem('bookshelf_font_family') || 'sans';
+  let currentFontWeight = localStorage.getItem('bookshelf_font_weight') || '600'; // 預設 600 (推薦墨水屏與螢幕清晰粗體)
   let chaptersData = [];
   let isPlainTextMode = true; // 預設提供友善的純文字段落編輯模式
+
+  // 字型映射配置 (針對繁體中文閱讀與墨水屏精心挑選)
+  const FONT_FAMILIES = {
+    sans: '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", sans-serif',
+    round: '"PingFang TC", "Yuanti TC", "Noto Sans CJK TC", "BiauKai", sans-serif',
+    kai: '"LXGW WenKai Screen", "BiauKai", "DFKai-SB", "KaiTi", "STKaiti", serif',
+    serif: '"Noto Serif TC", "Source Han Serif TC", "PMingLiU", "MingLiU", "Songti TC", serif',
+    system: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+  };
+
+  const FONT_WEIGHT_LEVELS = [
+    { value: '400', label: '常規' },
+    { value: '600', label: '加粗' },
+    { value: '750', label: '特粗' }
+  ];
 
   const epubContainer = document.getElementById('epubContainer');
   const pdfContainer = document.getElementById('pdfContainer');
@@ -75,12 +95,12 @@ const EPUBViewerModule = (() => {
       // 3. 確保容器可見
       await new Promise(resolve => setTimeout(resolve, 80));
 
-      // 4. 初始化 Rendition
+      // 4. 初始化 Rendition (強制單頁翻頁 spread: 'none'，嚴格確保按一次精準翻 1 頁，絕不跨頁或跳章)
       rendition = bookInstance.renderTo(viewerArea, {
         width: '100%',
         height: '100%',
         flow: 'paginated',
-        spread: 'auto',
+        spread: 'none',
         allowScriptedContent: true
       });
 
@@ -89,7 +109,7 @@ const EPUBViewerModule = (() => {
         applyThemeStyles(contents);
         if (contents.document) {
           // 點擊或觸控 iframe 內部立即關閉浮動小視窗 (Capture 階段捕獲，徹底防殘留)
-          const dismissEvents = ['pointerdown', 'mousedown', 'click', 'touchstart', 'wheel'];
+          const dismissEvents = ['pointerdown', 'mousedown', 'click', 'touchstart'];
           dismissEvents.forEach(evt => {
             contents.document.addEventListener(evt, () => {
               if (window.hideSelectionQuickBar) window.hideSelectionQuickBar();
@@ -101,13 +121,24 @@ const EPUBViewerModule = (() => {
             if (window.hideSelectionQuickBar) window.hideSelectionQuickBar();
           }, { passive: true });
 
+          // 穿透綁定滑鼠滾輪翻頁 (以 capture 模式攔截，精確換頁並防抖防連跳)
+          contents.document.addEventListener('wheel', (e) => {
+            if (window.handleGlobalWheelPaging) {
+              window.handleGlobalWheelPaging(e);
+            }
+          }, { capture: true, passive: false });
+
           // 穿透綁定鍵盤翻頁與 Escape 關閉
           contents.document.addEventListener('keydown', (e) => {
-            if (['Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' '].includes(e.key)) {
+            const isPagingKey = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' '].includes(e.key);
+            if (isPagingKey || e.key === 'Escape') {
               if (window.hideSelectionQuickBar) window.hideSelectionQuickBar();
             }
-            if (window.handleGlobalPagingKey) {
-              window.handleGlobalPagingKey(e);
+            if (isPagingKey) {
+              e.stopPropagation();
+              if (window.handleGlobalPagingKey) {
+                window.handleGlobalPagingKey(e);
+              }
             }
           }, true);
         }
@@ -199,7 +230,13 @@ const EPUBViewerModule = (() => {
       // 10. 載入章節原始文字供「編輯」面板使用
       await loadEpubEditorChapters(book.id);
 
+      // 載入持久化設定（字級、字型、字重、主題等）
+      await loadPersistedSettings();
       setupControls();
+      updateFontSizeUi();
+      updateFontWeightUi();
+      const fontSelect = document.getElementById('epubFontFamilySelect');
+      if (fontSelect) fontSelect.value = currentFontFamily;
 
     } catch (err) {
       console.error('Fatal error loading EPUB:', err);
@@ -222,12 +259,14 @@ const EPUBViewerModule = (() => {
     if (!doc) return;
 
     const theme = THEME_STYLES[currentTheme] || THEME_STYLES.white;
+    const fontFamilyCss = FONT_FAMILIES[currentFontFamily] || FONT_FAMILIES.sans;
     const body = doc.body;
 
     if (body) {
       body.style.backgroundColor = `${theme.bodyBg} !important`;
       body.style.color = `${theme.textColor} !important`;
-      body.style.fontFamily = '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif';
+      body.style.fontFamily = fontFamilyCss;
+      body.style.fontWeight = currentFontWeight;
       body.style.fontSize = `${currentFontSize}%`;
       body.style.lineHeight = '1.85';
       body.style.padding = '25px 35px';
@@ -238,12 +277,26 @@ const EPUBViewerModule = (() => {
     paragraphs.forEach(p => {
       p.style.color = theme.pColor;
       p.style.lineHeight = '1.85';
+      p.style.fontFamily = fontFamilyCss;
+      p.style.fontWeight = currentFontWeight;
     });
 
     const headings = doc.querySelectorAll('h1, h2, h3, h4, h5, h6');
     headings.forEach(h => {
       h.style.color = theme.hColor;
+      h.style.fontFamily = fontFamilyCss;
       h.style.fontWeight = 'bold';
+    });
+
+    // 內嵌圖片自適應居中與防溢出保護
+    const images = doc.querySelectorAll('img, image, svg');
+    images.forEach(img => {
+      img.style.maxWidth = '100% !important';
+      img.style.height = 'auto !important';
+      img.style.display = 'block';
+      img.style.margin = '16px auto';
+      img.style.borderRadius = '4px';
+      img.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
     });
   }
 
@@ -395,14 +448,37 @@ const EPUBViewerModule = (() => {
     }
   }
 
-  function prevPage() {
+  let isTurningPage = false;
+
+  async function prevPage() {
     if (window.hideSelectionQuickBar) window.hideSelectionQuickBar();
-    if (rendition) rendition.prev();
+    if (!rendition || isTurningPage) return;
+    isTurningPage = true;
+    try {
+      await rendition.prev();
+    } catch (err) {
+      console.warn('EPUB prevPage error:', err);
+    } finally {
+      // 確保跨章節或虛擬分頁渲染完全完成並穩定後釋放鎖 (防止連翻或跳章)
+      setTimeout(() => {
+        isTurningPage = false;
+      }, 200);
+    }
   }
 
-  function nextPage() {
+  async function nextPage() {
     if (window.hideSelectionQuickBar) window.hideSelectionQuickBar();
-    if (rendition) rendition.next();
+    if (!rendition || isTurningPage) return;
+    isTurningPage = true;
+    try {
+      await rendition.next();
+    } catch (err) {
+      console.warn('EPUB nextPage error:', err);
+    } finally {
+      setTimeout(() => {
+        isTurningPage = false;
+      }, 200);
+    }
   }
 
   function goToLocation(cfi) {
@@ -421,26 +497,72 @@ const EPUBViewerModule = (() => {
     }
   }
 
+  function saveSetting(key, value) {
+    try {
+      localStorage.setItem(`bookshelf_${key}`, String(value));
+      fetch(`/api/settings/${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: String(value) })
+      }).catch(() => {});
+    } catch (e) {
+      console.warn('儲存設定失敗:', e);
+    }
+  }
+
+  async function loadPersistedSettings() {
+    try {
+      const resp = await fetch('/api/settings');
+      if (resp.ok) {
+        const settings = await resp.json();
+        if (settings.font_size) {
+          const s = parseInt(settings.font_size, 10);
+          if (!isNaN(s) && s >= 70 && s <= 220) {
+            currentFontSize = s;
+            localStorage.setItem('bookshelf_font_size', String(s));
+          }
+        }
+        if (settings.font_family && FONT_FAMILIES[settings.font_family]) {
+          currentFontFamily = settings.font_family;
+          localStorage.setItem('bookshelf_font_family', settings.font_family);
+        }
+        if (settings.font_weight) {
+          currentFontWeight = settings.font_weight;
+          localStorage.setItem('bookshelf_font_weight', settings.font_weight);
+        }
+        if (settings.theme && THEME_STYLES[settings.theme]) {
+          currentTheme = settings.theme;
+          localStorage.setItem('bookshelf_theme', settings.theme);
+        }
+      }
+    } catch (e) {
+      // 離線或純本機時直接使用已有的 localStorage 設定
+    }
+    updateFontSizeUi();
+    updateFontWeightUi();
+    const fontSelect = document.getElementById('epubFontFamilySelect');
+    if (fontSelect) fontSelect.value = currentFontFamily;
+  }
+
+  function updateFontSizeUi() {
+    const label = document.getElementById('epubFontSizeLabel');
+    if (label) label.textContent = `${currentFontSize}%`;
+  }
+
   function changeFontSize(delta) {
     currentFontSize = Math.max(70, Math.min(220, currentFontSize + delta));
-    if (rendition) {
-      rendition.getContents().forEach(contents => {
-        applyThemeStyles(contents);
-      });
-    }
+    saveSetting('font_size', currentFontSize);
+    updateFontSizeUi();
+    refreshReaderStyles();
   }
 
   function setTheme(themeKey) {
     currentTheme = themeKey;
+    saveSetting('theme', themeKey);
     const theme = THEME_STYLES[themeKey] || THEME_STYLES.white;
-    epubContainer.style.backgroundColor = theme.bodyBg;
-    viewerArea.style.backgroundColor = theme.bodyBg;
-
-    if (rendition) {
-      rendition.getContents().forEach(contents => {
-        applyThemeStyles(contents);
-      });
-    }
+    if (epubContainer) epubContainer.style.backgroundColor = theme.bodyBg;
+    if (viewerArea) viewerArea.style.backgroundColor = theme.bodyBg;
+    refreshReaderStyles();
   }
 
   async function saveReadingProgress(location, progress) {
@@ -459,6 +581,37 @@ const EPUBViewerModule = (() => {
     }
   }
 
+  function setFontFamily(familyKey) {
+    currentFontFamily = familyKey;
+    saveSetting('font_family', familyKey);
+    const fontSelect = document.getElementById('epubFontFamilySelect');
+    if (fontSelect) fontSelect.value = familyKey;
+    refreshReaderStyles();
+  }
+
+  function cycleFontWeight() {
+    const idx = FONT_WEIGHT_LEVELS.findIndex(l => l.value === currentFontWeight);
+    const nextIdx = (idx + 1) % FONT_WEIGHT_LEVELS.length;
+    currentFontWeight = FONT_WEIGHT_LEVELS[nextIdx].value;
+    saveSetting('font_weight', currentFontWeight);
+    updateFontWeightUi();
+    refreshReaderStyles();
+  }
+
+  function updateFontWeightUi() {
+    const label = document.getElementById('epubFontWeightLabel');
+    const cur = FONT_WEIGHT_LEVELS.find(l => l.value === currentFontWeight) || FONT_WEIGHT_LEVELS[1];
+    if (label) label.textContent = cur.label;
+  }
+
+  function refreshReaderStyles() {
+    if (rendition) {
+      rendition.getContents().forEach(contents => {
+        applyThemeStyles(contents);
+      });
+    }
+  }
+
   let controlsBound = false;
   function setupControls() {
     if (controlsBound) return;
@@ -468,6 +621,24 @@ const EPUBViewerModule = (() => {
     document.getElementById('epubNextBtn').addEventListener('click', nextPage);
     document.getElementById('epubFontMinusBtn').addEventListener('click', () => changeFontSize(-10));
     document.getElementById('epubFontPlusBtn').addEventListener('click', () => changeFontSize(10));
+
+    // 字型切換控制
+    const fontSelect = document.getElementById('epubFontFamilySelect');
+    if (fontSelect) {
+      fontSelect.value = currentFontFamily;
+      fontSelect.addEventListener('change', (e) => {
+        setFontFamily(e.target.value);
+      });
+    }
+
+    // 字重切換控制
+    const weightBtn = document.getElementById('epubFontWeightBtn');
+    if (weightBtn) {
+      updateFontWeightUi();
+      weightBtn.addEventListener('click', () => {
+        cycleFontWeight();
+      });
+    }
 
     document.querySelectorAll('.epub-theme-btn').forEach(btn => {
       btn.addEventListener('click', () => setTheme(btn.dataset.theme));
@@ -481,6 +652,16 @@ const EPUBViewerModule = (() => {
       toggleEditModeBtn.innerText = isPlainTextMode ? '切換原始碼' : '切換純文字';
       updateEditorContent();
     });
+
+    updateFontSizeUi();
+    updateFontWeightUi();
+  }
+
+  // 頁面載入時預先同步持久化設定
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => loadPersistedSettings());
+  } else {
+    loadPersistedSettings();
   }
 
   return {

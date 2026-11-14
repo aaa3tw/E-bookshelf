@@ -1,5 +1,22 @@
 /* Adobe Acrobat 經典專業暗色 UI 風格與精緻微動效 */
 
+/* 確保所有輸入框擁有正確的文字選取與標準文字游標 */
+input, textarea, [contenteditable="true"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text !important;
+}
+
+/* 確保搜尋列與輸入框文字游標（Caret）清晰可見 */
+input[type="text"], input[type="search"], textarea {
+  caret-color: #f87171 !important; /* 鮮明紅色游標，保證在暗色背景清晰可見 */
+}
+
+#searchInput, #crawlerSearchInput, #updateSearchInput, #bmSearchInput, #zlibKeyInput {
+  cursor: text !important;
+  caret-color: #f87171 !important;
+}
+
 /* 滾動條樣式優化 */
 ::-webkit-scrollbar {
   width: 6px;

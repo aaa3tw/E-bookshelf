@@ -109,6 +109,151 @@ const CrawlerModule = (() => {
         renderTrackedBooksList(e.target.value.trim().toLowerCase());
       });
     }
+
+    // Z-Library 設定彈窗控制
+    const openZlibConfigBtn = document.getElementById('openZlibConfigBtn');
+    const zlibConfigModal = document.getElementById('zlibConfigModal');
+    const closeZlibModalBtn = document.getElementById('closeZlibModalBtn');
+    const cancelZlibModalBtn = document.getElementById('cancelZlibModalBtn');
+    const saveZlibModalBtn = document.getElementById('saveZlibModalBtn');
+    const zlibKeyInput = document.getElementById('zlibKeyInput');
+    const zlibUserIdInput = document.getElementById('zlibUserIdInput');
+    const zlibStatusText = document.getElementById('zlibStatusText');
+    const zlibStatusBadge = document.getElementById('zlibStatusBadge');
+
+    const zlibTabLoginBtn = document.getElementById('zlibTabLoginBtn');
+    const zlibTabManualBtn = document.getElementById('zlibTabManualBtn');
+    const zlibLoginSection = document.getElementById('zlibLoginSection');
+    const zlibManualSection = document.getElementById('zlibManualSection');
+    const zlibDoLoginBtn = document.getElementById('zlibDoLoginBtn');
+    const zlibLoginEmail = document.getElementById('zlibLoginEmail');
+    const zlibLoginPassword = document.getElementById('zlibLoginPassword');
+    const zlibLoginBtnText = document.getElementById('zlibLoginBtnText');
+
+    // 重新整理 Z-Lib 狀態資訊
+    async function refreshZlibStatus() {
+      try {
+        const res = await fetch('/api/zlib/config');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.has_token) {
+            if (zlibStatusBadge) {
+              zlibStatusBadge.textContent = '已授權綁定';
+              zlibStatusBadge.className = 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+            }
+            if (zlibStatusText) {
+              const accDesc = data.email ? `帳號: ${data.email}` : `金鑰: ${data.token_preview}`;
+              zlibStatusText.textContent = `目前狀態：已綁定 (${accDesc})，可直接一鍵高速下載 Z-Lib 完整 EPUB！`;
+              zlibStatusText.className = "text-[11px] text-emerald-400 mt-1";
+            }
+            if (zlibKeyInput) zlibKeyInput.placeholder = `已配置: ${data.token_preview} (留空不修改)`;
+            if (zlibUserIdInput && data.user_id) zlibUserIdInput.value = data.user_id;
+            if (zlibLoginEmail && data.email) zlibLoginEmail.value = data.email;
+          } else {
+            if (zlibStatusBadge) {
+              zlibStatusBadge.textContent = '未登入';
+              zlibStatusBadge.className = 'text-[10px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300';
+            }
+            if (zlibStatusText) {
+              zlibStatusText.textContent = "目前狀態：未設定 (支援線上免費檢索，下載原檔需登入帳號獲取配額)";
+              zlibStatusText.className = "text-[11px] text-slate-400 mt-1";
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (openZlibConfigBtn && zlibConfigModal) {
+      openZlibConfigBtn.addEventListener('click', async () => {
+        await refreshZlibStatus();
+        zlibConfigModal.classList.remove('hidden');
+        if (window.lucide) lucide.createIcons();
+      });
+
+      const hideZlibModal = () => zlibConfigModal.classList.add('hidden');
+      if (closeZlibModalBtn) closeZlibModalBtn.addEventListener('click', hideZlibModal);
+      if (cancelZlibModalBtn) cancelZlibModalBtn.addEventListener('click', hideZlibModal);
+
+      // 分頁切換
+      if (zlibTabLoginBtn && zlibTabManualBtn) {
+        zlibTabLoginBtn.addEventListener('click', () => {
+          zlibTabLoginBtn.className = 'flex-1 pb-2 text-center font-bold text-red-400 border-b-2 border-red-500 transition';
+          zlibTabManualBtn.className = 'flex-1 pb-2 text-center text-slate-400 hover:text-white border-b-2 border-transparent transition';
+          zlibLoginSection.classList.remove('hidden');
+          zlibManualSection.classList.add('hidden');
+        });
+        zlibTabManualBtn.addEventListener('click', () => {
+          zlibTabManualBtn.className = 'flex-1 pb-2 text-center font-bold text-red-400 border-b-2 border-red-500 transition';
+          zlibTabLoginBtn.className = 'flex-1 pb-2 text-center text-slate-400 hover:text-white border-b-2 border-transparent transition';
+          zlibManualSection.classList.remove('hidden');
+          zlibLoginSection.classList.add('hidden');
+        });
+      }
+
+      // 一鍵帳號密碼登入
+      if (zlibDoLoginBtn && zlibLoginEmail && zlibLoginPassword) {
+        zlibDoLoginBtn.addEventListener('click', async () => {
+          const email = zlibLoginEmail.value.trim();
+          const pwd = zlibLoginPassword.value.trim();
+          if (!email || !pwd) {
+            alert('請輸入 Z-Library 帳號 Email 與登入密碼！');
+            return;
+          }
+
+          zlibDoLoginBtn.disabled = true;
+          if (zlibLoginBtnText) zlibLoginBtnText.textContent = '正在登入連線中...';
+
+          try {
+            const res = await fetch('/api/zlib/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: email, password: pwd })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              alert('🎉 Z-Library 登入成功！\n已為您自動綁定專屬金鑰與高速個人節點，現在可以一鍵暢快下載書籍！');
+              await refreshZlibStatus();
+              setTimeout(hideZlibModal, 800);
+            } else {
+              alert(`登入失敗：${data.detail || data.message || '請確認帳號密碼是否正確'}`);
+            }
+          } catch (e) {
+            alert(`連線出錯: ${e.message}`);
+          } finally {
+            zlibDoLoginBtn.disabled = false;
+            if (zlibLoginBtnText) zlibLoginBtnText.textContent = '立即登入並自動綁定';
+          }
+        });
+      }
+
+      // 手動儲存金鑰
+      if (saveZlibModalBtn && zlibKeyInput) {
+        saveZlibModalBtn.addEventListener('click', async () => {
+          const key = zlibKeyInput.value.trim();
+          const uid = zlibUserIdInput ? zlibUserIdInput.value.trim() : '';
+          if (!key) {
+            alert('請填寫 remix_user_key！');
+            return;
+          }
+          try {
+            const res = await fetch('/api/zlib/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ remix_user_key: key, remix_userid: uid })
+            });
+            if (res.ok) {
+              alert('Z-Library 金鑰已成功儲存！');
+              await refreshZlibStatus();
+              hideZlibModal();
+            } else {
+              alert('儲存失敗，請重試');
+            }
+          } catch (e) {
+            alert(`儲存出錯: ${e.message}`);
+          }
+        });
+      }
+    }
   }
 
   // 切換主導覽分頁
@@ -161,8 +306,18 @@ const CrawlerModule = (() => {
       }
     });
 
-    if (tab === 'bookshelf' && typeof fetchBooks === 'function') {
-      fetchBooks();
+    if (tab === 'bookshelf') {
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput && (searchInput.value.includes('@') || !searchInput.dataset.userTyped)) {
+        searchInput.value = '';
+        if (window.AppState) window.AppState.searchQuery = '';
+        const clearBtn = document.getElementById('clearSearchInputBtn');
+        if (clearBtn) clearBtn.classList.add('hidden');
+      }
+      const fetchFn = window.fetchBooks || (typeof fetchBooks === 'function' ? fetchBooks : null);
+      if (fetchFn) {
+        fetchFn();
+      }
     }
 
     if (window.lucide) {
@@ -420,7 +575,13 @@ const CrawlerModule = (() => {
 
     grid.querySelectorAll('.view-detail-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        openBookDetail(btn.dataset.url);
+        const targetUrl = btn.dataset.url;
+        // 若為 Z-Library 書籍直接啟動下載
+        if (targetUrl && targetUrl.includes('z-lib.by')) {
+          startDownload(targetUrl);
+        } else {
+          openBookDetail(targetUrl);
+        }
       });
     });
 
@@ -556,7 +717,7 @@ const CrawlerModule = (() => {
         } else if (task.status === 'error') {
           clearInterval(taskPollTimer);
           taskPollTimer = null;
-          updateFloatingProgressError(task.message || task.error || '下載出錯');
+          updateFloatingProgressError(task.message || task.error || '下載出錯', task);
         }
       } catch (e) {
         console.warn('輪詢進度失敗:', e);
@@ -571,9 +732,12 @@ const CrawlerModule = (() => {
 
     bar.classList.remove('hidden');
     document.getElementById('floatingProgressMsg').textContent = msg;
+    document.getElementById('floatingProgressBar').className = 'bg-gradient-to-r from-red-600 to-amber-500 h-full transition-all duration-300';
     document.getElementById('floatingProgressBar').style.width = `${pct}%`;
     document.getElementById('floatingProgressPct').textContent = `${pct}%`;
     document.getElementById('floatingSuccessAction').classList.add('hidden');
+    const errBox = document.getElementById('floatingErrorAction');
+    if (errBox) errBox.classList.add('hidden');
   }
 
   // 更新進度顯示
@@ -600,29 +764,78 @@ const CrawlerModule = (() => {
     if (successBox) successBox.classList.remove('hidden');
 
     // 重新抓取書櫃資料
-    if (typeof fetchBooks === 'function') {
-      fetchBooks();
+    const refreshFn = window.fetchBooks || (typeof fetchBooks === 'function' ? fetchBooks : null);
+    if (refreshFn) {
+      refreshFn();
     }
 
     // 綁定立即閱讀按鈕
-    if (readBtn && task.book_uuid) {
-      readBtn.onclick = () => {
+    if (readBtn) {
+      readBtn.onclick = async () => {
+        // 隱藏下載浮動進度面板
+        const bar = document.getElementById('crawlerFloatingProgress');
+        if (bar) bar.classList.add('hidden');
+
+        // 先切換到書櫃以確保 DOM 結構正常
         switchMainTab('bookshelf');
-        if (typeof openBookById === 'function') {
-          openBookById(task.book_uuid);
+
+        // 呼叫閱讀器開啟此書籍
+        const openFn = window.openBookById || (typeof openBookById === 'function' ? openBookById : null);
+        if (openFn) {
+          let targetId = task.book_uuid;
+          // 若無直接 uuid，嘗試從最新刷新後的列表比對檔名或書名
+          if (!targetId && window.AppState && window.AppState.books && window.AppState.books.length > 0) {
+            const found = window.AppState.books.find(b => 
+              (task.book_file && b.file_name && b.file_name.includes(task.book_file)) ||
+              (task.title && b.title && b.title.includes(task.title))
+            );
+            if (found) targetId = found.id;
+          }
+          if (targetId) {
+            await openFn(targetId);
+          } else {
+            console.warn('未找到目標書籍 UUID，已返回書櫃');
+          }
         }
       };
     }
   }
 
   // 顯示下載錯誤
-  function updateFloatingProgressError(errMsg) {
+  function updateFloatingProgressError(errMsg, task = null) {
     const bar = document.getElementById('crawlerFloatingProgress');
     if (!bar) return;
 
+    bar.classList.remove('hidden');
     document.getElementById('floatingProgressMsg').textContent = `錯誤: ${errMsg}`;
-    document.getElementById('floatingProgressBar').classList.add('bg-red-500');
+    document.getElementById('floatingProgressBar').className = 'h-full transition-all duration-300 bg-red-600';
     document.getElementById('floatingProgressBar').style.width = `100%`;
+    document.getElementById('floatingSuccessAction').classList.add('hidden');
+
+    const errBox = document.getElementById('floatingErrorAction');
+    const openZlibBtn = document.getElementById('floatingOpenZlibModalBtn');
+    const directBtn = document.getElementById('floatingWebDirectBtn');
+
+    if (errBox) {
+      const isZlib = (errMsg && (errMsg.includes('Z-Library') || errMsg.includes('Z-Lib') || errMsg.includes('AUTH_'))) ||
+                     (task && task.web_url);
+      if (isZlib) {
+        errBox.classList.remove('hidden');
+        if (directBtn) {
+          const directUrl = (task && task.web_url) ? task.web_url : 'https://zh.z-lib.by';
+          directBtn.href = directUrl;
+        }
+        if (openZlibBtn) {
+          openZlibBtn.onclick = () => {
+            const zlibBtn = document.getElementById('openZlibConfigBtn');
+            if (zlibBtn) zlibBtn.click();
+          };
+        }
+      } else {
+        errBox.classList.add('hidden');
+      }
+    }
+    if (window.lucide) lucide.createIcons();
   }
 
   // ==================== 追更管理模組 (Updates View) ====================

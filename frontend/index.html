@@ -4,6 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acrobat Bookshelf - 電子書櫃與專業閱讀編輯系統</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico?v=20261114">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icon-32.png?v=20261114">
+  <link rel="apple-touch-icon" sizes="192x192" href="assets/icon-192.png?v=20261114">
+  <link rel="manifest" href="manifest.json?v=20261114">
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -50,7 +54,7 @@
       document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');
     }
   </script>
-  <script src="assets/epub.min.js"></script>
+  <script src="assets/epub.min.js?v=20261113_patch_boundary"></script>
   <script>
     if (typeof ePub === 'undefined') {
       document.write('<script src="https://cdn.jsdelivr.net/npm/epubjs/dist/epub.min.js"><\/script>');
@@ -58,7 +62,7 @@
   </script>
 
   <!-- Custom Styles -->
-  <link rel="stylesheet" href="css/acrobat-theme.css?v=20261108_2330">
+  <link rel="stylesheet" href="css/acrobat-theme.css?v=20261112_2245">
 </head>
 <body class="bg-gray-100 text-gray-800 font-sans antialiased overflow-hidden select-none">
 
@@ -99,9 +103,12 @@
       <!-- 書櫃專屬搜尋與過濾列 -->
       <div id="bookshelfSearchGroup" class="flex items-center space-x-3 flex-1 max-w-xl mx-8 transition-opacity duration-200">
         <div class="relative w-full">
-          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-slate-400"></i>
-          <input type="text" id="searchInput" placeholder="搜尋書名、作者或多重書籤標籤..." 
-                 class="w-full bg-slate-700/60 border border-slate-600/70 rounded-lg pl-9 pr-4 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 transition shadow-inner">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-slate-400 pointer-events-none"></i>
+          <input type="search" id="searchInput" name="bookshelf_search_query" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="搜尋書名、作者或多重書籤標籤..." 
+                 class="w-full bg-slate-700/60 border border-slate-600/70 rounded-lg pl-9 pr-8 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 transition shadow-inner">
+          <button id="clearSearchInputBtn" class="hidden absolute right-2.5 top-2.5 text-slate-400 hover:text-white p-0.5 rounded transition" title="清空搜尋">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
         </div>
         
         <div class="flex bg-slate-700/80 p-1 rounded-lg border border-slate-600/60 text-xs shrink-0">
@@ -218,13 +225,18 @@
         <!-- 搜尋與直接網址輸入 -->
         <div class="flex items-center gap-2 flex-1 max-w-xl">
           <div class="relative w-full">
-            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-slate-400"></i>
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-slate-400 pointer-events-none"></i>
             <input type="text" id="crawlerSearchInput" placeholder="搜尋書名，或直接輸入小說目錄網址/書號..." 
                    class="w-full bg-slate-700/60 border border-slate-600/70 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 transition shadow-inner">
           </div>
           <button id="crawlerSearchBtn" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-semibold flex items-center gap-1.5 transition shrink-0 shadow-md shadow-red-900/30">
             <i data-lucide="search" class="w-4 h-4"></i>
             <span>搜尋</span>
+          </button>
+          <!-- Z-Lib 設定按鈕 -->
+          <button id="openZlibConfigBtn" class="px-3 py-2 rounded-xl bg-slate-700/80 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium border border-slate-600/80 flex items-center gap-1.5 transition shrink-0 shadow-sm" title="設定 Z-Library 金鑰 (remix_user_key)">
+            <i data-lucide="key" class="w-4 h-4 text-amber-400"></i>
+            <span class="hidden md:inline">Z-Lib 設定</span>
           </button>
         </div>
       </div>
@@ -288,7 +300,7 @@
 
         <div class="flex items-center gap-3">
           <div class="relative w-64">
-            <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
+            <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400 pointer-events-none"></i>
             <input type="text" id="updateSearchInput" placeholder="篩選追更書名..." 
                    class="w-full bg-slate-700/60 border border-slate-600/70 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-red-500">
           </div>
@@ -513,7 +525,7 @@
 
               <!-- 標籤搜尋輸入框 -->
               <div class="relative">
-                <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2 top-2 text-slate-500"></i>
+                <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2 top-2 text-slate-500 pointer-events-none"></i>
                 <input type="text" id="bmSearchInput" placeholder="搜尋書籤備註、引文或標籤..." 
                        class="w-full bg-[#1c1d1f] border border-[#33373a] rounded pl-7 pr-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500">
               </div>
@@ -610,10 +622,29 @@
                   </select>
                 </div>
 
+                <!-- 字型切換 (推薦粗體且清晰) -->
+                <div class="flex items-center gap-1 bg-white border border-slate-300 rounded px-1.5 py-0.5">
+                  <span class="text-slate-400">字型:</span>
+                  <select id="epubFontFamilySelect" class="bg-transparent border-none text-xs text-slate-800 font-medium focus:outline-none cursor-pointer">
+                    <option value="sans">飽滿黑體 (推薦)</option>
+                    <option value="round">溫潤圓體</option>
+                    <option value="kai">厚重楷體</option>
+                    <option value="serif">典雅粗宋</option>
+                    <option value="system">系統預設</option>
+                  </select>
+                </div>
+
+                <!-- 字體加粗切換 -->
+                <button id="epubFontWeightBtn" class="flex items-center gap-1 bg-white hover:bg-slate-100 border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-800 font-bold shadow-sm transition" title="點擊切換字體粗細 (常規 / 加粗 / 特粗)">
+                  <span class="font-extrabold text-[13px]">B</span>
+                  <span id="epubFontWeightLabel" class="text-[11px] text-slate-600">加粗</span>
+                </button>
+
                 <!-- 字體縮放 -->
                 <div class="flex items-center gap-1 bg-white border border-slate-300 rounded px-1.5 py-0.5">
                   <span class="text-slate-400">字級:</span>
                   <button id="epubFontMinusBtn" class="px-1.5 py-0.5 rounded hover:bg-slate-200 font-bold" title="縮小字體">A-</button>
+                  <span id="epubFontSizeLabel" class="text-xs font-mono font-bold text-slate-700 min-w-[36px] text-center">100%</span>
                   <button id="epubFontPlusBtn" class="px-1.5 py-0.5 rounded hover:bg-slate-200 font-bold" title="放大字體">A+</button>
                 </div>
 
@@ -909,17 +940,115 @@
           <span>立即閱讀</span>
         </button>
       </div>
+
+      <!-- 下載失敗時的引導按鈕 (如 Z-Lib 帳號授權引導或網頁直達) -->
+      <div id="floatingErrorAction" class="hidden mt-3 pt-3 border-t border-slate-700/70 flex items-center justify-between gap-2">
+        <button id="floatingOpenZlibModalBtn" class="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold transition flex items-center gap-1 shadow">
+          <i data-lucide="key" class="w-3 h-3"></i>
+          <span>登入 Z-Lib 帳號</span>
+        </button>
+        <a id="floatingWebDirectBtn" href="#" target="_blank" class="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-[11px] font-medium transition flex items-center gap-1">
+          <i data-lucide="external-link" class="w-3 h-3"></i>
+          <span>瀏覽器開啟下載頁</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- ==================== 7. Z-Library 設定與登入彈窗 ==================== -->
+    <div id="zlibConfigModal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-[#242729] border border-slate-700 rounded-2xl max-w-md w-full shadow-2xl overflow-hidden flex flex-col text-slate-100 animate-in fade-in zoom-in-95 duration-150">
+        <div class="px-5 py-4 border-b border-slate-700/80 flex items-center justify-between bg-[#1e2022]">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
+              <i data-lucide="key" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h3 class="font-bold text-sm text-white">Z-Library 帳號登入與金鑰設定</h3>
+              <p class="text-[11px] text-slate-400">連接 https://zh.z-lib.by 全球電子書庫</p>
+            </div>
+          </div>
+          <button id="closeZlibModalBtn" class="text-slate-400 hover:text-white transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <div class="p-5 space-y-4 text-xs">
+          <!-- 登入狀態提示 -->
+          <div id="zlibStatusBanner" class="p-3 rounded-xl border border-slate-700 bg-slate-800/80 space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-white">當前連線狀態</span>
+              <span id="zlibStatusBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">未登入</span>
+            </div>
+            <p id="zlibStatusText" class="text-[11px] text-slate-400">Z-Library 檢索完全免費；下載原檔需登入帳號獲取每日下載配額。</p>
+          </div>
+
+          <!-- 分頁切換 (模式一：帳號登入 / 模式二：手動金鑰) -->
+          <div class="flex border-b border-slate-700">
+            <button id="zlibTabLoginBtn" class="flex-1 pb-2 text-center font-bold text-red-400 border-b-2 border-red-500 transition">
+              帳號密碼登入 (推薦)
+            </button>
+            <button id="zlibTabManualBtn" class="flex-1 pb-2 text-center text-slate-400 hover:text-white border-b-2 border-transparent transition">
+              手動輸入金鑰
+            </button>
+          </div>
+
+          <!-- 模式一：帳號密碼登入 -->
+          <form id="zlibLoginSection" autocomplete="on" onsubmit="return false;" class="space-y-3">
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">Z-Library Email 信箱</label>
+              <input type="email" id="zlibLoginEmail" name="username" autocomplete="username" placeholder="例如：your_account@gmail.com"
+                     class="w-full bg-[#1c1d1f] border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 text-xs">
+            </div>
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">登入密碼</label>
+              <input type="password" id="zlibLoginPassword" name="password" autocomplete="current-password" placeholder="輸入您的密碼"
+                     class="w-full bg-[#1c1d1f] border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 text-xs">
+            </div>
+            <button id="zlibDoLoginBtn" type="button" class="w-full py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-red-900/30">
+              <i data-lucide="log-in" class="w-4 h-4"></i>
+              <span id="zlibLoginBtnText">立即登入並自動綁定</span>
+            </button>
+            <p class="text-[10px] text-slate-500 text-center">還沒有帳號？可前往 <a href="https://zh.z-lib.by" target="_blank" class="text-red-400 underline hover:text-red-300">zh.z-lib.by</a> 免費註冊</p>
+          </form>
+
+          <!-- 模式二：手動輸入金鑰 -->
+          <div id="zlibManualSection" class="hidden space-y-3">
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">remix_user_key (必填)</label>
+              <input type="text" id="zlibKeyInput" placeholder="貼上您的 remix_user_key (32位十六進位)" 
+                     class="w-full bg-[#1c1d1f] border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 text-xs font-mono">
+            </div>
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">remix_userid (選填)</label>
+              <input type="text" id="zlibUserIdInput" placeholder="您的用戶 ID" 
+                     class="w-full bg-[#1c1d1f] border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 text-xs font-mono">
+            </div>
+            <button id="saveZlibModalBtn" class="w-full py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold transition flex items-center justify-center gap-1.5 shadow">
+              <i data-lucide="check" class="w-4 h-4"></i>
+              <span>儲存金鑰設定</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="px-5 py-3 border-t border-slate-700 bg-[#1e2022] flex items-center justify-between text-xs">
+          <a href="https://zh.z-lib.by" target="_blank" class="text-slate-400 hover:text-white flex items-center gap-1 transition">
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+            <span>開啟 Z-Lib 官網</span>
+          </a>
+          <button id="cancelZlibModalBtn" class="px-4 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition">關閉</button>
+        </div>
+      </div>
     </div>
 
   </div>
 
   <!-- 載入應用程式腳本 (加入 Cache Buster 確保載入最新版本) -->
-  <script src="js/app.js?v=20261108_2330"></script>
-  <script src="js/pdf-viewer.js?v=20261108_2330"></script>
-  <script src="js/epub-viewer.js?v=20261108_2330"></script>
-  <script src="js/bookmark-manager.js?v=20261108_2330"></script>
-  <script src="js/annotation-manager.js?v=20261108_2330"></script>
-  <script src="js/crawler.js?v=20261108_2330"></script>
+  <script src="js/app.js?v=20261114_wheel_paging"></script>
+  <script src="js/pdf-viewer.js?v=20261114_wheel_paging"></script>
+  <script src="js/epub-viewer.js?v=20261114_wheel_paging"></script>
+  <script src="js/bookmark-manager.js?v=20261114_wheel_paging"></script>
+  <script src="js/annotation-manager.js?v=20261114_wheel_paging"></script>
+  <script src="js/crawler.js?v=20261114_wheel_paging"></script>
 
   <script>
     // 初始化 Lucide 圖標

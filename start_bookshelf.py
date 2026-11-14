@@ -57,9 +57,9 @@ def main():
 
     threading.Thread(target=open_browser, daemon=True).start()
 
-    # 啟動 Uvicorn
+    # 啟動 Uvicorn (啟用 reload=True 熱重載，避免代碼更新後需手動重啟)
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True, app_dir=str(BACKEND_DIR), log_level="info")
 
 if __name__ == "__main__":
     main()

@@ -127,16 +127,22 @@ const PDFViewerModule = (() => {
     }
   }
 
+  let isPdfTurning = false;
+
   function prevPage() {
-    if (pageNum <= 1) return;
+    if (pageNum <= 1 || isPdfTurning) return;
+    isPdfTurning = true;
     pageNum--;
     queueRenderPage(pageNum);
+    setTimeout(() => { isPdfTurning = false; }, 80);
   }
 
   function nextPage() {
-    if (!pdfDoc || pageNum >= pdfDoc.numPages) return;
+    if (!pdfDoc || pageNum >= pdfDoc.numPages || isPdfTurning) return;
+    isPdfTurning = true;
     pageNum++;
     queueRenderPage(pageNum);
+    setTimeout(() => { isPdfTurning = false; }, 80);
   }
 
   function goToPage(num) {
